@@ -2,8 +2,6 @@ import React, { useState } from 'react';
 
 const SESSION_KEY = 'tf_auth';
 
-// SHA-256 hash of the password — the actual password is never stored in code
-// Default password hash is for "tradefolio2024" — change via Settings
 async function sha256(str) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
@@ -26,7 +24,7 @@ export function logout() {
   window.location.reload();
 }
 
-export default function LoginScreen() {
+export default function LoginScreen({ onLogin }) {
   const [password, setPassword] = useState('');
   const [error,    setError]    = useState('');
   const [loading,  setLoading]  = useState(false);
@@ -41,7 +39,8 @@ export default function LoginScreen() {
       const stored = getStoredPasswordHash();
       if (hash === stored) {
         sessionStorage.setItem(SESSION_KEY, 'yes');
-        window.location.reload();
+        if (onLogin) onLogin();
+        else window.location.reload();
       } else {
         setError('Incorrect password. Try again.');
         setPassword('');
@@ -63,7 +62,6 @@ export default function LoginScreen() {
         background: 'var(--bg-card)', border: '1px solid var(--border)',
         borderRadius: 16, boxShadow: '0 24px 64px rgba(0,0,0,.5)',
       }}>
-        {/* Logo */}
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
           <div style={{ fontSize: 40, marginBottom: 10 }}>📈</div>
           <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)' }}>
