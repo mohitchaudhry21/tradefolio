@@ -5,7 +5,7 @@ import { useTrades } from '../context/TradesContext';
 const fmt  = n => `${n>=0?'+':'-'}$${Math.abs(n).toFixed(2)}`;
 const fmtK = n => Math.abs(n)>=1000 ? `${n<0?'-':''}$${(Math.abs(n)/1000).toFixed(1)}k` : fmt(n);
 
-const PERIODS = ['Today','7 Days','30 Days','3 Months','1 Year','All Time'];
+const PERIODS = ['Settings Range','Today','7 Days','30 Days','3 Months','1 Year','All Time','Custom'];
 const FTYPES  = ['All Trades','Winners','Losers'];
 
 const TIP = ({ active, payload, label }) => {
@@ -30,41 +30,44 @@ function getSession(time) {
 
 export default function Analytics() {
   const { trades, stats } = useTrades();
-  const [period,  setPeriod]  = useState('30 Days');
-  const [ftype,   setFtype]   = useState('All Trades');
+  const [period,     setPeriod]     = useState('Settings Range');
+  const [ftype,      setFtype]      = useState('All Trades');
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo,   setCustomTo]   = useState('');
 
-  // Base: exclude withdrawals always, respect settings date range
-  const baseTrades = useMemo(() => trades.filter(t => {
-    if (t.isWithdrawal) return false;
-    const d = t.exitDate || t.entryDate || '';
-    if (stats.statsStartDate && d < stats.statsStartDate) return false;
-    if (stats.statsEndDate   && d > stats.statsEndDate)   return false;
-    return true;
-  }), [trades, stats.statsStartDate, stats.statsEndDate]);
+  const baseTrades = useMemo(() => trades.filter(t => !t.isWithdrawal), [trades]);
 
   const filteredTrades = useMemo(() => {
-    const cutoff = new Date();
-    if (period==='Today')     cutoff.setDate(cutoff.getDate()-1);
-    else if (period==='7 Days')    cutoff.setDate(cutoff.getDate()-7);
-    else if (period==='30 Days')   cutoff.setMonth(cutoff.getMonth()-1);
-    else if (period==='3 Months')  cutoff.setMonth(cutoff.getMonth()-3);
-    else if (period==='1 Year')    cutoff.setFullYear(cutoff.getFullYear()-1);
-    else return [...baseTrades];
-    let arr = baseTrades.filter(t=>new Date(t.entryDate)>=cutoff);
+    let arr = [...baseTrades];
+    if (period === 'Settings Range') {
+      const sd = stats.statsStartDate || '';
+      const ed = stats.statsEndDate   || '';
+      if (sd) arr = arr.filter(t => (t.exitDate||t.entryDate||'') >= sd);
+      if (ed) arr = arr.filter(t => (t.exitDate||t.entryDate||'') <= ed);
+    } else if (period === 'Custom') {
+      if (customFrom) arr = arr.filter(t => (t.exitDate||t.entryDate||'') >= customFrom);
+      if (customTo)   arr = arr.filter(t => (t.exitDate||t.entryDate||'') <= customTo);
+    } else if (period !== 'All Time') {
+      const cutoff = new Date();
+      if      (period==='Today')     cutoff.setDate(cutoff.getDate()-1);
+      else if (period==='7 Days')    cutoff.setDate(cutoff.getDate()-7);
+      else if (period==='30 Days')   cutoff.setMonth(cutoff.getMonth()-1);
+      else if (period==='3 Months')  cutoff.setMonth(cutoff.getMonth()-3);
+      else if (period==='1 Year')    cutoff.setFullYear(cutoff.getFullYear()-1);
+      arr = arr.filter(t => new Date(t.exitDate||t.entryDate) >= cutoff);
+    }
     if (ftype==='Winners') arr=arr.filter(t=>t.status==='Win');
     if (ftype==='Losers')  arr=arr.filter(t=>t.status==='Loss');
     return arr;
-  }, [baseTrades, period, ftype]);
+  }, [baseTrades, period, ftype, customFrom, customTo, stats.statsStartDate, stats.statsEndDate]);
 
   const fs = useMemo(() => {
     const brokeragePerLot = stats.brokeragePerLot || 0;
     const tradeComm = t => brokeragePerLot > 0 ? brokeragePerLot * (t.size||0) : (t.fees||0);
     const netPnl    = t => (t.pnl||0) - tradeComm(t);
-
     const wins     = filteredTrades.filter(t=>t.status==='Win');
     const losses   = filteredTrades.filter(t=>t.status==='Loss');
     const wlOnly   = filteredTrades.filter(t=>t.status==='Win'||t.status==='Loss');
-    // Profit factor uses NET P&L of wins vs losses only (BE excluded)
     const gp=wins.reduce((s,t)=>s+netPnl(t),0);
     const gl=Math.abs(losses.reduce((s,t)=>s+netPnl(t),0));
     const totalPnl=filteredTrades.reduce((s,t)=>s+netPnl(t),0);
@@ -76,33 +79,24 @@ export default function Analytics() {
     const avgL=losses.length?gl/losses.length:0;
     const best=filteredTrades.length?Math.max(...filteredTrades.map(t=>netPnl(t))):0;
     const worst=filteredTrades.length?Math.min(...filteredTrades.map(t=>netPnl(t))):0;
-
-    // Streaks — breakeven skips, doesn't reset
-    const sorted=[...filteredTrades].sort((a,b)=>a.entryDate.localeCompare(b.entryDate));
+    const sorted=[...filteredTrades].sort((a,b)=>(a.entryDate||'').localeCompare(b.entryDate||''));
     let maxWs=0,maxLs=0,cw=0,cl=0;
     sorted.forEach(t=>{
       if(t.status==='Win'){cw++;cl=0;maxWs=Math.max(maxWs,cw);}
       else if(t.status==='Loss'){cl++;cw=0;maxLs=Math.max(maxLs,cl);}
     });
-
-    // Max DD
     let peak=0,cum2=0,maxDD=0;
     sorted.forEach(t=>{cum2+=(t.pnl||0);peak=Math.max(peak,cum2);maxDD=Math.max(maxDD,peak-cum2);});
-
-    // RR avg
     const avgRR = filteredTrades.length ? filteredTrades.reduce((s,t)=>s+(t.rMultiple||0),0)/filteredTrades.length : 0;
-
     return {totalPnl,totalComm,wins:wins.length,losses:losses.length,breakeven:filteredTrades.length-wlOnly.length,total:wlOnly.length,totalAll:filteredTrades.length,wr,pf,exp,avgW,avgL,best,worst,maxWs,maxLs,maxDD,avgRR,gp,gl};
-  }, [filteredTrades]);
+  }, [filteredTrades, stats.brokeragePerLot]);
 
-  // Equity curve
   const equityCurve = useMemo(()=>{
     const sorted=[...filteredTrades].filter(t=>t.entryDate).sort((a,b)=>(a.entryDate||'').localeCompare(b.entryDate||''));
     let cum=0;
     return sorted.map(t=>{cum+=(t.pnl||0);return{date:(t.entryDate||'').slice(5),pnl:parseFloat(cum.toFixed(2))};});
   },[filteredTrades]);
 
-  // Day performance
   const dayPerf = useMemo(()=>{
     const days=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
     const map={};
@@ -115,7 +109,6 @@ export default function Analytics() {
     return days.map(d=>({day:d,pnl:parseFloat((map[d]?.pnl||0).toFixed(2)),total:map[d]?.total||0}));
   },[filteredTrades]);
 
-  // Long vs Short
   const lsData = useMemo(()=>{
     const longs=filteredTrades.filter(t=>t.side==='Long');
     const shorts=filteredTrades.filter(t=>t.side==='Short');
@@ -127,7 +120,6 @@ export default function Analytics() {
     };
   },[filteredTrades]);
 
-  // Top symbols
   const topSymbols = useMemo(()=>{
     const map={};
     filteredTrades.forEach(t=>{
@@ -139,7 +131,6 @@ export default function Analytics() {
       .sort((a,b)=>Math.abs(b.pnl)-Math.abs(a.pnl)).slice(0,5);
   },[filteredTrades]);
 
-  // Sessions
   const sessions = useMemo(()=>{
     const map={asian:{pnl:0,total:0,wins:0},london:{pnl:0,total:0,wins:0},newyork:{pnl:0,total:0,wins:0}};
     filteredTrades.forEach(t=>{
@@ -153,11 +144,11 @@ export default function Analytics() {
     };
   },[filteredTrades]);
 
-  // Monthly stats
   const monthStats = useMemo(()=>{
     const map={};
     trades.forEach(t=>{
-      const ym=t.entryDate.slice(0,7);
+      const ym=t.entryDate?.slice(0,7);
+      if(!ym) return;
       if(!map[ym]) map[ym]=0;
       map[ym]+=t.pnl||0;
     });
@@ -170,7 +161,6 @@ export default function Analytics() {
     return {best,worst,avg,bestMonth:bestMonth?.[0],worstMonth:worstMonth?.[0]};
   },[trades]);
 
-  // Day map for trading days
   const tradingDays = useMemo(()=>{
     const days=new Set(filteredTrades.map(t=>t.entryDate));
     const dayPnl={};
@@ -196,9 +186,14 @@ export default function Analytics() {
           <div className="page-title">Performance Analytics</div>
           <div className="page-sub">Analyze your trading patterns and improve your strategy</div>
         </div>
-        <div style={{display:'flex',gap:10,alignItems:'center'}}>
+        <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
           <div className="time-filters">
-            {PERIODS.map(p=><button key={p} className={`tf-btn${period===p?' active':''}`} onClick={()=>setPeriod(p)}>{p}</button>)}
+            {PERIODS.map(p=>(
+              <button key={p} className={`tf-btn${period===p?' active':''}`} onClick={()=>setPeriod(p)}
+                style={p==='Settings Range'&&period===p?{background:'rgba(59,130,246,.3)'}:{}}>
+                {p==='Settings Range'?'⚙ Date Range':p}
+              </button>
+            ))}
           </div>
           <div className="time-filters">
             {FTYPES.map(f=>(
@@ -211,14 +206,37 @@ export default function Analytics() {
         </div>
       </div>
 
+      {period === 'Custom' && (
+        <div style={{padding:'8px 20px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',gap:10,background:'var(--bg-hover)',flexWrap:'wrap'}}>
+          <span style={{fontSize:12,color:'var(--text-secondary)',fontWeight:600}}>Custom range:</span>
+          <input type="date" className="form-control" style={{width:150,padding:'4px 8px',fontSize:12}} value={customFrom} onChange={e=>setCustomFrom(e.target.value)}/>
+          <span style={{fontSize:12,color:'var(--text-muted)'}}>→</span>
+          <input type="date" className="form-control" style={{width:150,padding:'4px 8px',fontSize:12}} value={customTo} onChange={e=>setCustomTo(e.target.value)}/>
+          {(customFrom||customTo) && <button className="btn btn-ghost btn-sm" onClick={()=>{setCustomFrom('');setCustomTo('');}}>✕ Clear</button>}
+        </div>
+      )}
+
+      {period === 'Settings Range' && (stats.statsStartDate||stats.statsEndDate) && (
+        <div style={{padding:'8px 20px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',gap:8,background:'rgba(59,130,246,.06)'}}>
+          <span style={{fontSize:12,color:'var(--blue-bright)',fontWeight:600}}>
+            📅 {stats.statsStartDate||'all time'} → {stats.statsEndDate||'today'}
+          </span>
+          <span style={{fontSize:11,color:'var(--text-muted)'}}>· Change in Settings → Stats Date Range</span>
+        </div>
+      )}
+      {period === 'Settings Range' && !stats.statsStartDate && !stats.statsEndDate && (
+        <div style={{padding:'8px 20px',borderBottom:'1px solid var(--border)',background:'rgba(251,191,36,.06)'}}>
+          <span style={{fontSize:12,color:'var(--yellow)',fontWeight:600}}>⚠ No date range in Settings — showing all trades.</span>
+        </div>
+      )}
+
       <div className="page-body">
-        {/* Top stats */}
         <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:14,marginBottom:20}}>
           {[
-            {label:'TOTAL P&L',val:fmtK(fs.totalPnl),sub:`${fs.total} trades · ${fs.breakeven>0?fs.breakeven+' BE · ':''}excl. commission`,sub2:'Gross P&L for the selected period',color:fs.totalPnl>=0?'pos':'neg',icon:'💵',c:'blue'},
+            {label:'TOTAL P&L',val:fmtK(fs.totalPnl),sub:`${fs.total} trades · ${fs.breakeven>0?fs.breakeven+' BE · ':''}excl. commission`,sub2:'Net P&L for the selected period',color:fs.totalPnl>=0?'pos':'neg',icon:'💵',c:'blue'},
             {label:'WIN RATE',val:`${fs.wr.toFixed(1)}%`,sub:`${fs.wins}W · ${fs.losses}L${fs.breakeven>0?` · ${fs.breakeven}BE (excl.)`:''}`,sub2:'Win/Loss trades only — breakeven excluded',color:fs.wr>=50?'pos':'neg',icon:'✅',c:'blue',bar:fs.wr},
-            {label:'COMMISSION',val:`-$${(fs.totalComm||0).toFixed(2)}`,sub:'Total fees paid',sub2:'Sum of all commissions and swap for this period',color:'neg',icon:'💸',c:'red'},
-            {label:'PROFIT FACTOR',val:isFinite(fs.pf)?fs.pf.toFixed(2):'∞',sub:fs.pf>=1.5?'Good':fs.pf>=1?'Break-even':'Below 1',sub2:'Gross profit ÷ Gross loss (above 1.5 is good)',color:'neu',icon:'📊',c:'purple'},
+            {label:'COMMISSION',val:`-$${(fs.totalComm||0).toFixed(2)}`,sub:'Total fees paid',sub2:'Sum of all commissions for this period',color:'neg',icon:'💸',c:'red'},
+            {label:'PROFIT FACTOR',val:isFinite(fs.pf)?fs.pf.toFixed(2):'∞',sub:fs.pf>=1.5?'Good':fs.pf>=1?'Break-even':'Below 1',sub2:'Net profit ÷ Net loss — BE trades excluded',color:'neu',icon:'📊',c:'purple'},
             {label:'EXPECTANCY',val:`$${fs.exp.toFixed(2)}`,sub:'Average per trade',sub2:'Expected profit per trade based on your stats',color:fs.exp>=0?'pos':'neg',icon:'🎯',c:'yellow'},
           ].map(s=>(
             <div key={s.label} style={{background:'var(--bg-card)',border:'1px solid var(--border)',borderRadius:10,padding:'18px 20px'}}>
@@ -231,9 +249,7 @@ export default function Analytics() {
           ))}
         </div>
 
-        {/* Quick stats + Equity curve */}
         <div style={{display:'grid',gridTemplateColumns:'300px 1fr',gap:16,marginBottom:16}}>
-          {/* Quick stats */}
           <div className="card">
             <div className="card-title">Quick Stats</div>
             <div className="qs-grid">
@@ -248,16 +264,11 @@ export default function Analytics() {
             </div>
           </div>
 
-          {/* Equity curve */}
           <div className="card">
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
               <div>
                 <div className="card-title" style={{marginBottom:2}}>📈 Equity Curve</div>
                 <div style={{fontSize:11,color:'var(--text-muted)'}}>Cumulative P&L progression</div>
-              </div>
-              <div className="time-filters">
-                <button className="tf-btn active">Equity</button>
-                <button className="tf-btn">Drawdown</button>
               </div>
             </div>
             <ResponsiveContainer width="100%" height={200}>
@@ -278,9 +289,7 @@ export default function Analytics() {
           </div>
         </div>
 
-        {/* Long vs Short + Day Performance + Top Symbols */}
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:16,marginBottom:16}}>
-          {/* Long vs Short */}
           <div className="card">
             <div className="card-title">📈 Long vs Short</div>
             <div style={{fontSize:11,color:'var(--text-muted)',marginBottom:12}}>Performance by trade direction</div>
@@ -299,7 +308,6 @@ export default function Analytics() {
             ))}
           </div>
 
-          {/* Day Performance */}
           <div className="card">
             <div className="card-title">📅 Day Performance</div>
             <div style={{fontSize:11,color:'var(--text-muted)',marginBottom:12}}>Find your best trading days</div>
@@ -314,7 +322,6 @@ export default function Analytics() {
             ))}
           </div>
 
-          {/* Top Symbols */}
           <div className="card">
             <div className="card-title">🏆 Top Symbols</div>
             <div style={{fontSize:11,color:'var(--text-muted)',marginBottom:12}}>Best performing assets</div>
@@ -330,11 +337,10 @@ export default function Analytics() {
                 <div className={s.pnl>=0?'pos':'neg'} style={{fontWeight:700,fontSize:13}}>{fmtK(s.pnl)}</div>
               </div>
             ))}
-            {topSymbols.length===0 && <div className="empty-state" style={{padding:'20px 0'}}><div className="empty-text">No data</div></div>}
+            {topSymbols.length===0 && <div style={{textAlign:'center',padding:'20px 0',color:'var(--text-muted)',fontSize:12}}>No data</div>}
           </div>
         </div>
 
-        {/* Session Performance */}
         <div className="card" style={{marginBottom:16}}>
           <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}>
             <span className="card-title" style={{margin:0}}>🌍 Session Performance</span>
@@ -373,15 +379,12 @@ export default function Analytics() {
           </div>
         </div>
 
-        {/* Your Stats big table + Win/Loss dist + Recent */}
         <div style={{display:'grid',gridTemplateColumns:'1fr 360px',gap:16}}>
-          {/* Full stats table */}
           <div className="card">
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
               <div className="card-title" style={{margin:0}}>Your Stats</div>
               <span style={{background:'var(--bg-hover)',border:'1px solid var(--border)',borderRadius:5,padding:'2px 9px',fontSize:11,color:'var(--text-secondary)',fontWeight:600}}>{period}</span>
             </div>
-            {/* Best/Worst/Avg month */}
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10,marginBottom:16}}>
               {[
                 {l:'BEST MONTH',v:fmtK(monthStats.best),sub:monthStats.bestMonth||'—',c:'pos'},
@@ -395,12 +398,10 @@ export default function Analytics() {
                 </div>
               ))}
             </div>
-            {/* Stats rows */}
             <div style={{columns:2,columnGap:20}}>
               {[
-                ['Total P&L (Gross)',   fmtK(fs.totalPnl),         fs.totalPnl>=0],
+                ['Total P&L (Net)',     fmtK(fs.totalPnl),         fs.totalPnl>=0],
                 ['Commission',         `-$${(fs.totalComm||0).toFixed(2)}`,  false],
-                ['Total Brokerage',    `-$${(fs.totalBrokerage||0).toFixed(2)}`, false],
                 ['Open trades','0',null],
                 ['Average daily volume', fs.total>0?(fs.total/Math.max(tradingDays.total,1)).toFixed(1):'0',null],
                 ['Total trading days',tradingDays.total,null],
@@ -411,24 +412,20 @@ export default function Analytics() {
                 ['Total number of trades',fs.total,null],
                 ['Breakeven days',tradingDays.total-tradingDays.winDays-tradingDays.lossDays,null],
                 ['Number of winning trades',fs.wins,null],
-                ['Max consecutive winning days',fs.maxWs,null],
-                ['Number of losing trades',fs.losses,null],
-                ['Max consecutive losing days',fs.maxLs,null],
                 ['Max consecutive wins',fs.maxWs,null],
-                ['Average daily P&L',`$${tradingDays.avgDayPnl.toFixed(2)}`,tradingDays.avgDayPnl>=0],
+                ['Number of losing trades',fs.losses,null],
                 ['Max consecutive losses',fs.maxLs,null],
-                ['Average winning day P&L',`$${tradingDays.avgWinDay.toFixed(2)}`,true],
+                ['Average daily P&L',`$${tradingDays.avgDayPnl.toFixed(2)}`,tradingDays.avgDayPnl>=0],
+                ['Average winning day',`$${tradingDays.avgWinDay.toFixed(2)}`,true],
                 ['Largest profit',fmtK(fs.best),true],
-                ['Average losing day P&L',`$${tradingDays.avgLossDay.toFixed(2)}`,false],
+                ['Average losing day',`$${tradingDays.avgLossDay.toFixed(2)}`,false],
                 ['Largest loss',fmtK(fs.worst),false],
                 ['Largest profitable day',fmtK(tradingDays.bestDay),true],
                 ['Trade expectancy',`$${fs.exp.toFixed(2)}`,fs.exp>=0],
                 ['Largest losing day',fmtK(tradingDays.worstDay),false],
-                ['Max drawdown',fmtK(-stats.maxDrawdown),false],
-                ['Total commissions',`-$${stats.totalCommissions.toFixed(2)}`,false],
-                ['Max drawdown %',`${stats.accountSize>0?((stats.maxDrawdown/stats.accountSize)*100).toFixed(2):0}%`,false],
+                ['Max drawdown',fmtK(-fs.maxDD),false],
                 ['Account Size', `$${(stats.accountSize||10000).toLocaleString()}`, null],
-                ['Account Return', `${stats.accountSize>0?((stats.totalPnl/stats.accountSize)*100).toFixed(2):0}%`, stats.totalPnl>=0],
+                ['Account Return', `${stats.accountSize>0?((fs.totalPnl/stats.accountSize)*100).toFixed(2):0}%`, fs.totalPnl>=0],
               ].map(([l,v,pos])=>(
                 <div key={l} style={{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:'1px solid var(--border)',breakInside:'avoid',fontSize:12}}>
                   <span style={{color:'var(--text-secondary)'}}>{l}</span>
@@ -438,7 +435,6 @@ export default function Analytics() {
             </div>
           </div>
 
-          {/* Right: Win/Loss + Recent */}
           <div style={{display:'flex',flexDirection:'column',gap:14}}>
             <div className="card">
               <div className="card-title">Win/Loss Distribution</div>
@@ -481,5 +477,3 @@ export default function Analytics() {
     </div>
   );
 }
-
-
