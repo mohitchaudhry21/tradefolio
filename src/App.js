@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { HashRouter, Routes, Route } from 'react-router-dom';
 import { TradesProvider } from './context/TradesContext';
 import { ToastProvider } from './context/ToastContext';
 import Sidebar from './components/Sidebar';
@@ -16,7 +16,7 @@ export default function App() {
   return (
     <TradesProvider>
       <ToastProvider>
-        <BrowserRouter>
+        <HashRouter>
           <div className="layout">
             <Sidebar />
             <main className="main">
@@ -32,7 +32,7 @@ export default function App() {
               </Routes>
             </main>
           </div>
-        </BrowserRouter>
+        </HashRouter>
       </ToastProvider>
     </TradesProvider>
   );
