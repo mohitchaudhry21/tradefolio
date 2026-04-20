@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route } from 'react-router-dom';
 import { TradesProvider } from './context/TradesContext';
 import { ToastProvider } from './context/ToastContext';
@@ -10,9 +10,18 @@ import Analytics from './pages/Analytics';
 import Calendar from './pages/Calendar';
 import BrokerConnect from './pages/BrokerConnect';
 import { ImportPage, SettingsPage } from './pages/OtherPages';
+import LoginScreen, { isAuthEnabled, isAuthenticated } from './components/LoginScreen';
 import './styles.css';
 
 export default function App() {
+  const [authed, setAuthed] = useState(() => !isAuthEnabled() || isAuthenticated());
+
+  useEffect(() => {
+    setAuthed(!isAuthEnabled() || isAuthenticated());
+  }, []);
+
+  if (!authed) return <LoginScreen />;
+
   return (
     <TradesProvider>
       <ToastProvider>
