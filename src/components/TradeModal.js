@@ -140,7 +140,7 @@ export default function TradeModal({ trade, onClose, defaultTab }) {
                 <div className="form-row cols-2" style={{marginBottom:16}}>
                   <div className="form-group" style={{marginBottom:0}}>
                     <label className="form-label">Date</label>
-                    <input className="form-control" type="date" value={f.entryDate} onChange={e=>set('entryDate',e.target.value)} required/>
+                    <input className="form-control" type="date" value={f.entryDate} onChange={e=>{ set('entryDate',e.target.value); set('exitDate',e.target.value); }} required/>
                   </div>
                   <div className="form-group" style={{marginBottom:0}}>
                     <label className="form-label">Amount ($)</label>
