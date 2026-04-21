@@ -43,9 +43,12 @@ export default function Calendar() {
       if (t.isOpen || t.status === 'Open') return;
 
       if (t.isWithdrawal) {
-        if (!wdMap[d]) wdMap[d] = { amount: 0, count: 0 };
-        wdMap[d].amount += Math.abs(t.pnl || 0);
-        wdMap[d].count  += 1;
+        // Use entryDate for withdrawals — exitDate may be wrong if saved with old bug
+        const wd = t.entryDate || t.exitDate;
+        if (!wd) return;
+        if (!wdMap[wd]) wdMap[wd] = { amount: 0, count: 0 };
+        wdMap[wd].amount += Math.abs(t.pnl || 0);
+        wdMap[wd].count  += 1;
         return;
       }
 
