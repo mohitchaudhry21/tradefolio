@@ -254,12 +254,18 @@ export default function Journal() {
     return () => document.removeEventListener('mousedown', handler);
   }, [showExportMenu]);
 
-  const [mobilePanel, setMobilePanel] = useState('list'); // 'list' | 'detail' — for mobile only
+  const [mobilePanel, setMobilePanel] = useState('list');
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768);
 
-  // When a trade is selected on mobile, switch to detail panel
+  useEffect(() => {
+    const handler = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener('resize', handler);
+    return () => window.removeEventListener('resize', handler);
+  }, []);
+
   const handleSelectTrade = (id) => {
     setSelected(id);
-    setMobilePanel('detail');
+    if (isMobile) setMobilePanel('detail');
   };
 
   return (
@@ -268,7 +274,7 @@ export default function Journal() {
       <div className="page-header" style={{ flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {/* Mobile back button — only shows when viewing detail on mobile */}
-          {mobilePanel === 'detail' && (
+          {isMobile && mobilePanel === 'detail' && (
             <button onClick={() => setMobilePanel('list')} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--blue-bright)', fontSize:13, fontWeight:600, padding:0, display:'flex', alignItems:'center', gap:4 }}>
               ← Back
             </button>
@@ -312,8 +318,7 @@ export default function Journal() {
 
         {/* ── LEFT PANEL: Trade list with independent scroll ── */}
         <div style={{ borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', overflow: 'hidden',
-          // On mobile: hide this panel when viewing detail
-          ...(window.innerWidth <= 768 && mobilePanel === 'detail' ? { display: 'none' } : {}),
+          ...(isMobile && mobilePanel === 'detail' ? { display: 'none' } : {}),
         }}>
           {/* Tabs — fixed inside left panel */}
           <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', padding: '0 14px', flexShrink: 0 }}>
@@ -415,7 +420,7 @@ export default function Journal() {
         {/* ── RIGHT PANEL: Journal form with independent scroll ── */}
         {selTrade ? (
           <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden',
-            ...(window.innerWidth <= 768 && mobilePanel === 'list' ? { display: 'none' } : {}),
+            ...(isMobile && mobilePanel === 'list' ? { display: 'none' } : {}),
           }}>
             {/* Trade header — fixed inside right panel */}
             <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexShrink: 0 }}>
