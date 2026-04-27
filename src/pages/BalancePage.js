@@ -202,8 +202,7 @@ export default function BalancePage() {
                         </td>
                         <td style={{padding:'10px 12px',color:'var(--text-primary)',maxWidth:200,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{desc}</td>
                         <td style={{padding:'10px 12px',textAlign:'right',fontWeight:700,color:net>=0?'var(--blue-bright)':'var(--red)',whiteSpace:'nowrap'}}>
-                          {net>=0?'+':''}{fmtA(net).replace('$',net>=0?'$':'-$').replace('--','-')}
-                          {net<0?`-${fmtA(Math.abs(net))}`:fmtA(net)}
+                          {net >= 0 ? '+' : ''}{net < 0 ? '-$' + Math.abs(net).toFixed(2) : '$' + net.toFixed(2)}
                         </td>
                         <td style={{padding:'10px 12px',textAlign:'right',color:'var(--text-muted)',whiteSpace:'nowrap'}}>
                           {comm>0?`-$${comm.toFixed(2)}`:'—'}
