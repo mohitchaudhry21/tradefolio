@@ -12,6 +12,7 @@ const navItems = [
   { to:'/journal',   icon:'📓', label:'Journal' },
   { to:'/analytics', icon:'📊', label:'Analysis' },
   { to:'/calendar',  icon:'📅', label:'Calendar' },
+  { to:'/balance',   icon:'💰', label:'Balance' },
   { section: 'TOOLS' },
   { to:'/broker',    icon:'🔗', label:'Broker Connect', dot: true },
   { to:'/import',    icon:'⬆',  label:'Import / Export' },
