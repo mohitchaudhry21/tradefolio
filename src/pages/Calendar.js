@@ -43,13 +43,14 @@ export default function Calendar() {
       if (!d) return;
       if (t.isOpen || t.status === 'Open') return;  // exclude floating unrealized P&L
 
-      if (t.isWithdrawal) {
-        // Use entryDate for withdrawals — exitDate may be wrong if saved with old bug
+      if (t.isWithdrawal || t.isDeposit) {
+        // Use entryDate for withdrawals/deposits
         const wd = t.entryDate || t.exitDate;
         if (!wd) return;
-        if (!wdMap[wd]) wdMap[wd] = { amount: 0, count: 0 };
-        wdMap[wd].amount += Math.abs(t.pnl || 0);
-        wdMap[wd].count  += 1;
+        if (!wdMap[wd]) wdMap[wd] = { amount: 0, deposits: 0, count: 0 };
+        if (t.isWithdrawal) wdMap[wd].amount   += Math.abs(t.pnl || 0);
+        if (t.isDeposit)    wdMap[wd].deposits += Math.abs(t.pnl || 0);
+        wdMap[wd].count += 1;
         return;
       }
 
@@ -167,13 +168,9 @@ export default function Calendar() {
                         <div style={{fontSize:13,fontWeight:800,color:pos?'var(--blue-bright)':'var(--red)'}}>{fmtShort(cell.pnl)}</div>
                       )}
                       {wd && (
-                        <div style={{
-                          marginTop: cell?2:0,
-                          fontSize:11,fontWeight:700,
-                          color:'#f59e0b',
-                          display:'flex',alignItems:'center',gap:2,
-                        }}>
-                          💸 -{wd.amount.toFixed(0)}
+                        <div style={{display:'flex',flexDirection:'column',gap:1,marginTop:cell?2:0}}>
+                          {wd.amount > 0 && <div style={{fontSize:11,fontWeight:700,color:'#f59e0b'}}>💸 -{wd.amount.toFixed(0)}</div>}
+                          {wd.deposits > 0 && <div style={{fontSize:11,fontWeight:700,color:'#4ade80'}}>💰 +{wd.deposits.toFixed(0)}</div>}
                         </div>
                       )}
                     </div>
@@ -201,7 +198,8 @@ export default function Calendar() {
           <div style={{display:'flex',gap:16,marginTop:10,fontSize:11,color:'var(--text-secondary)',flexShrink:0}}>
             <span><span style={{color:'var(--blue)'}}>●</span> Profit</span>
             <span><span style={{color:'var(--red)'}}>●</span> Loss</span>
-            <span><span style={{color:'#f59e0b'}}>💸</span> Withdrawal</span>
+            <span>💸 Withdrawal</span>
+            <span>💰 Deposit</span>
           </div>
         </div>
 
@@ -220,11 +218,22 @@ export default function Calendar() {
 
               {/* Withdrawal block if present */}
               {selWd && (
-                <div style={{marginBottom:12,padding:'10px 12px',background:'rgba(245,158,11,.1)',border:'1px solid rgba(245,158,11,.3)',borderRadius:7}}>
-                  <div style={{fontSize:11,color:'#f59e0b',fontWeight:700,marginBottom:2}}>💸 WITHDRAWAL</div>
-                  <div style={{fontWeight:800,fontSize:16,color:'#f59e0b'}}>-${selWd.amount.toFixed(2)}</div>
-                  <div style={{fontSize:10,color:'var(--text-muted)'}}>Not counted in P&L or stats</div>
-                </div>
+                <>
+                  {selWd.amount > 0 && (
+                    <div style={{marginBottom:12,padding:'10px 12px',background:'rgba(245,158,11,.1)',border:'1px solid rgba(245,158,11,.3)',borderRadius:7}}>
+                      <div style={{fontSize:11,color:'#f59e0b',fontWeight:700,marginBottom:2}}>💸 WITHDRAWAL</div>
+                      <div style={{fontWeight:800,fontSize:16,color:'#f59e0b'}}>-${selWd.amount.toFixed(2)}</div>
+                      <div style={{fontSize:10,color:'var(--text-muted)'}}>Not counted in P&L or stats</div>
+                    </div>
+                  )}
+                  {selWd.deposits > 0 && (
+                    <div style={{marginBottom:12,padding:'10px 12px',background:'rgba(74,222,128,.1)',border:'1px solid rgba(74,222,128,.3)',borderRadius:7}}>
+                      <div style={{fontSize:11,color:'#4ade80',fontWeight:700,marginBottom:2}}>💰 DEPOSIT</div>
+                      <div style={{fontWeight:800,fontSize:16,color:'#4ade80'}}>+${selWd.deposits.toFixed(2)}</div>
+                      <div style={{fontSize:10,color:'var(--text-muted)'}}>Not counted in P&L or stats</div>
+                    </div>
+                  )}
+                </>
               )}
 
               {/* Trade P&L blocks */}
