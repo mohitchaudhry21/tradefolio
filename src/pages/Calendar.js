@@ -31,6 +31,7 @@ export default function Calendar() {
   const ds = d => `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
   const dn = (wi, di) => wi * 7 + di - offset + 1;
 
+  // Separate maps: trades vs withdrawals
   const dayMap = useMemo(() => {
     const sd = stats.statsStartDate || '';
     const ed = stats.statsEndDate   || '';
@@ -40,7 +41,7 @@ export default function Calendar() {
     trades.forEach(t => {
       const d = t.exitDate || t.entryDate;
       if (!d) return;
-      if (t.isOpen || t.status === 'Open') return;
+      if (t.isOpen || t.status === 'Open') return;  // exclude floating unrealized P&L
 
       if (t.isWithdrawal) {
         // Use entryDate for withdrawals — exitDate may be wrong if saved with old bug
@@ -52,12 +53,14 @@ export default function Calendar() {
         return;
       }
 
+      // Apply settings date range to trade P&L
       if (sd && d < sd) return;
       if (ed && d > ed) return;
 
       if (!tradeMap[d]) tradeMap[d] = { pnl: 0, comm: 0, count: 0, trades: [] };
       tradeMap[d].pnl   += parseFloat(t.pnl  || 0);
-      tradeMap[d].comm  += parseFloat(t.fees || 0) + brokeragePerLot * (t.size || 0);
+      // Use brokeragePerLot OR fees — never both (same logic as analytics)
+      tradeMap[d].comm  += brokeragePerLot > 0 ? brokeragePerLot * (t.size||0) : (t.fees||0);
       tradeMap[d].count += 1;
       tradeMap[d].trades.push(t);
     });
@@ -67,9 +70,18 @@ export default function Calendar() {
       v.comm = parseFloat(v.comm.toFixed(2));
     });
     return { tradeMap, wdMap };
-  }, [trades, stats.statsStartDate, stats.statsEndDate, brokeragePerLot]);
+  }, [trades, stats.statsStartDate, stats.statsEndDate]);
 
   const { tradeMap, wdMap } = dayMap;
+
+  // Same commission logic as analytics — use brokeragePerLot OR fees, never both
+  const tradeComm = t => brokeragePerLot > 0 ? brokeragePerLot * (t.size||0) : (t.fees||0);
+
+  const fmtDetailDate = d => {
+    if (!d) return '';
+    const dt = new Date(d + 'T12:00:00');
+    return dt.toLocaleDateString('en-US', { month:'long', day:'numeric', year:'numeric' });
+  };
 
   const monthPnl = useMemo(() => {
     let t = 0;
@@ -116,6 +128,7 @@ export default function Calendar() {
 
       <div style={{ display:'grid', gridTemplateColumns:'1fr 280px', gap:0, flex:1, overflow:'hidden', padding:'16px', paddingTop:'12px' }}>
         <div className="card" style={{ padding:'16px', display:'flex', flexDirection:'column', overflow:'hidden', height:'100%' }}>
+          {/* Column headers */}
           <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr) 110px',gap:4,marginBottom:6,flexShrink:0}}>
             {['MON','TUE','WED','THU','FRI','SAT','SUN'].map(d=>(
               <div key={d} style={{textAlign:'center',fontSize:10,fontWeight:700,color:'var(--text-muted)',padding:'4px 0'}}>{d}</div>
@@ -123,6 +136,7 @@ export default function Calendar() {
             <div style={{textAlign:'center',fontSize:10,fontWeight:700,color:'var(--text-muted)',padding:'4px 0'}}>WEEKLY</div>
           </div>
 
+          {/* Weeks — flex:1 so they fill remaining height evenly */}
           <div style={{ flex:1, display:'flex', flexDirection:'column', gap:4 }}>
           {Array.from({length:totalWeeks},(_,wi)=>{
             const wp = weekData(wi);
@@ -148,12 +162,17 @@ export default function Calendar() {
                         transition:'all .14s', position:'relative',
                         display:'flex', flexDirection:'column', minHeight:0,
                       }}>
-                      <div style={{fontSize:11,fontWeight:isTod?700:500,color:isTod?'var(--blue)':'var(--text-secondary)',marginBottom:2}}>{d}</div>
+                      <div style={{fontSize:13,fontWeight:isTod?700:500,color:isTod?'var(--blue)':'var(--text-secondary)',marginBottom:2}}>{d}</div>
                       {cell && (
-                        <div style={{fontSize:11,fontWeight:800,color:pos?'var(--blue-bright)':'var(--red)'}}>{fmtShort(cell.pnl)}</div>
+                        <div style={{fontSize:13,fontWeight:800,color:pos?'var(--blue-bright)':'var(--red)'}}>{fmtShort(cell.pnl)}</div>
                       )}
                       {wd && (
-                        <div style={{marginTop:cell?2:0,fontSize:9,fontWeight:700,color:'#f59e0b',display:'flex',alignItems:'center',gap:2}}>
+                        <div style={{
+                          marginTop: cell?2:0,
+                          fontSize:11,fontWeight:700,
+                          color:'#f59e0b',
+                          display:'flex',alignItems:'center',gap:2,
+                        }}>
                           💸 -{wd.amount.toFixed(0)}
                         </div>
                       )}
@@ -161,17 +180,18 @@ export default function Calendar() {
                   );
                 })}
 
+                {/* Weekly cell */}
                 <div style={{
                   borderRadius:6, padding:'7px 10px', boxSizing:'border-box',
                   background:wp.tradedDays>0?(wp.pnl>=0?'rgba(59,130,246,.08)':'rgba(239,68,68,.08)'):'var(--bg-hover)',
                   border:'1px solid var(--border)',
                   display:'flex', flexDirection:'column', justifyContent:'center', minHeight:0,
                 }}>
-                  <div style={{fontSize:8,fontWeight:700,color:'var(--text-muted)',letterSpacing:'.5px',marginBottom:2}}>WEEKLY</div>
-                  <div style={{fontSize:11,fontWeight:800,color:wp.tradedDays>0?(wp.pnl>=0?'var(--blue-bright)':'var(--red)'):'var(--text-muted)'}}>
+                  <div style={{fontSize:9,fontWeight:700,color:'var(--text-muted)',letterSpacing:'.5px',marginBottom:2}}>WEEKLY</div>
+                  <div style={{fontSize:13,fontWeight:800,color:wp.tradedDays>0?(wp.pnl>=0?'var(--blue-bright)':'var(--red)'):'var(--text-muted)'}}>
                     {wp.tradedDays>0?fmt(wp.pnl):'$0'}
                   </div>
-                  <div style={{fontSize:9,color:'var(--text-muted)'}}>Traded {wp.tradedDays}d</div>
+                  <div style={{fontSize:10,color:'var(--text-muted)'}}>Traded {wp.tradedDays}d</div>
                 </div>
               </div>
             );
@@ -185,7 +205,8 @@ export default function Calendar() {
           </div>
         </div>
 
-        <div className="card" style={{ marginLeft:16, display:'flex', flexDirection:'column', overflow:'auto', height:'100%' }}>
+        {/* Day detail panel */}
+        <div className="card" style={{ marginLeft:16, display:'flex', flexDirection:'column', overflow:'hidden', height:'100%' }}>
           <div style={{display:'flex',alignItems:'center',gap:7,marginBottom:12}}>
             <span style={{fontSize:14}}>📅</span>
             <span style={{fontWeight:700,fontSize:14}}>Day Detail</span>
@@ -194,9 +215,10 @@ export default function Calendar() {
             <>
               <div style={{marginBottom:12,padding:'8px 10px',background:'var(--bg-hover)',borderRadius:7}}>
                 <div style={{fontSize:11,color:'var(--text-muted)'}}>Date</div>
-                <div style={{fontWeight:700,fontSize:13}}>{selected}</div>
+                <div style={{fontWeight:700,fontSize:14}}>{fmtDetailDate(selected)}</div>
               </div>
 
+              {/* Withdrawal block if present */}
               {selWd && (
                 <div style={{marginBottom:12,padding:'10px 12px',background:'rgba(245,158,11,.1)',border:'1px solid rgba(245,158,11,.3)',borderRadius:7}}>
                   <div style={{fontSize:11,color:'#f59e0b',fontWeight:700,marginBottom:2}}>💸 WITHDRAWAL</div>
@@ -205,6 +227,7 @@ export default function Calendar() {
                 </div>
               )}
 
+              {/* Trade P&L blocks */}
               {selCell && (
                 <>
                   <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:12}}>
@@ -233,7 +256,7 @@ export default function Calendar() {
                         </div>
                         <span className={(t.pnl||0)>=0?'pos':'neg'} style={{fontWeight:700,fontSize:13}}>{fmt(t.pnl||0)}</span>
                       </div>
-                      {(() => { const effComm = (t.fees||0) + brokeragePerLot*(t.size||0); return effComm>0 ? <div style={{fontSize:10,color:'var(--text-muted)'}}>Comm: -${effComm.toFixed(2)}</div> : null; })()}
+                      {(() => { const effComm = tradeComm(t); return effComm>0 ? <div style={{fontSize:10,color:'var(--text-muted)'}}>Comm: -${effComm.toFixed(2)}</div> : null; })()}
                       <div style={{fontSize:10,color:'var(--text-muted)'}}>{t.entryTime}→{t.exitTime||'—'} · {t.size||0} lots</div>
                     </div>
                   ))}
