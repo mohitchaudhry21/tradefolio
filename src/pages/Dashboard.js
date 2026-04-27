@@ -209,16 +209,14 @@ export default function Dashboard() {
           {/* Monthly P&L Calendar */}
           <div className="card" style={{padding:'16px 16px 12px'}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
-              <div style={{fontSize:15,fontWeight:700}}>Monthly P&L</div>
-              <div style={{display:'flex',alignItems:'center',gap:10}}>
-                <span style={{fontSize:11,color:'var(--text-muted)'}}>
-                  Monthly: <strong style={{color:monthPnl>=0?'#3b82f6':'#ef4444'}}>{fmtPnl(monthPnl)}</strong>
-                </span>
-                <div style={{display:'flex',alignItems:'center',gap:2}}>
-                  <button className="btn-icon" style={{padding:'2px 8px',fontSize:14}} onClick={()=>setCalMonth(new Date(year,month-1,1))}>‹</button>
-                  <span style={{fontSize:11,fontWeight:600,minWidth:72,textAlign:'center'}}>{MONTHS[month].slice(0,3)} {year}</span>
-                  <button className="btn-icon" style={{padding:'2px 8px',fontSize:14}} onClick={()=>setCalMonth(new Date(year,month+1,1))}>›</button>
-                </div>
+              <div>
+                <div style={{fontSize:17,fontWeight:800}}>Monthly P&L</div>
+                <div style={{fontSize:13,fontWeight:700,color:monthPnl>=0?'#3b82f6':'#ef4444',marginTop:2}}>{fmtPnl(monthPnl)}</div>
+              </div>
+              <div style={{display:'flex',alignItems:'center',gap:2}}>
+                <button className="btn-icon" style={{padding:'2px 8px',fontSize:14}} onClick={()=>setCalMonth(new Date(year,month-1,1))}>‹</button>
+                <span style={{fontSize:12,fontWeight:700,minWidth:80,textAlign:'center'}}>{MONTHS[month].slice(0,3)} {year}</span>
+                <button className="btn-icon" style={{padding:'2px 8px',fontSize:14}} onClick={()=>setCalMonth(new Date(year,month+1,1))}>›</button>
               </div>
             </div>
 
@@ -235,7 +233,7 @@ export default function Dashboard() {
                 <div key={wi} style={{display:'grid',gridTemplateColumns:'repeat(7,1fr) 72px',gap:3,marginBottom:3}}>
                   {Array.from({length:7},(_,di)=>{
                     const dn=dayNum(wi,di);
-                    if(dn<1||dn>daysInMonth) return <div key={di} style={{height:56}}/>;
+                    if(dn<1||dn>daysInMonth) return <div key={di} style={{height:58}}/>;
                     const dateStr=ds(dn);
                     const pnl=dayMap[dateStr];
                     const has=pnl!==undefined;
@@ -243,20 +241,20 @@ export default function Dashboard() {
                     const isToday=dateStr===today;
                     return (
                       <div key={di} style={{
-                        height:56,borderRadius:7,
+                        height:58,borderRadius:7,
                         display:'flex',flexDirection:'column',
                         alignItems:'flex-start',justifyContent:'space-between',
                         padding:'5px 6px',boxSizing:'border-box',
                         background:has?(pos?'rgba(59,130,246,.2)':'rgba(239,68,68,.2)'):'rgba(255,255,255,.03)',
                         border:`1px solid ${isToday?'#3b82f6':has?(pos?'rgba(59,130,246,.3)':'rgba(239,68,68,.3)'):'rgba(255,255,255,.06)'}`,
                       }}>
-                        <div style={{fontSize:10,fontWeight:700,color:isToday?'#3b82f6':has?'rgba(255,255,255,.7)':'rgba(255,255,255,.3)'}}>{dn}</div>
-                        {has&&<div style={{fontSize:10,fontWeight:900,color:pos?'#60a5fa':'#f87171',letterSpacing:'-0.3px',lineHeight:1}}>{fmtShort(pnl)}</div>}
+                        <div style={{fontSize:11,fontWeight:700,color:isToday?'#3b82f6':has?'rgba(255,255,255,.7)':'rgba(255,255,255,.3)'}}>{dn}</div>
+                        {has&&<div style={{fontSize:11,fontWeight:900,color:pos?'#60a5fa':'#f87171',letterSpacing:'-0.3px',lineHeight:1}}>{fmtShort(pnl)}</div>}
                       </div>
                     );
                   })}
                   <div style={{
-                    height:56,borderRadius:7,
+                    height:58,borderRadius:7,
                     display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:1,
                     background:wp.days>0?(wp.total>=0?'rgba(59,130,246,.12)':'rgba(239,68,68,.12)'):'rgba(255,255,255,.02)',
                     border:`1px solid ${wp.days>0?(wp.total>=0?'rgba(59,130,246,.25)':'rgba(239,68,68,.25)'):'rgba(255,255,255,.05)'}`,
@@ -264,9 +262,9 @@ export default function Dashboard() {
                   }}>
                     {wp.days>0?(
                       <>
-                        <div style={{fontSize:8,fontWeight:700,color:'rgba(255,255,255,.4)',letterSpacing:'.5px'}}>WK</div>
-                        <div style={{fontSize:10,fontWeight:900,color:wp.total>=0?'#60a5fa':'#f87171',letterSpacing:'-0.3px'}}>{fmtShort(wp.total)}</div>
-                        <div style={{fontSize:8,color:'rgba(255,255,255,.3)'}}>{wp.days}d</div>
+                        <div style={{fontSize:9,fontWeight:700,color:'rgba(255,255,255,.4)',letterSpacing:'.5px'}}>WK</div>
+                        <div style={{fontSize:11,fontWeight:900,color:wp.total>=0?'#60a5fa':'#f87171',letterSpacing:'-0.3px'}}>{fmtShort(wp.total)}</div>
+                        <div style={{fontSize:9,color:'rgba(255,255,255,.3)'}}>{wp.days}d</div>
                       </>
                     ):<div style={{fontSize:9,color:'rgba(255,255,255,.2)'}}>—</div>}
                   </div>
