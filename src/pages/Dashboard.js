@@ -217,29 +217,31 @@ export default function Dashboard() {
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
               <div>
                 <div style={{fontSize:18,fontWeight:800,letterSpacing:'-0.3px'}}>Monthly P&L</div>
-                <div style={{fontSize:15,fontWeight:800,color:monthPnl>=0?'#3b82f6':'#ef4444',marginTop:3}}>{fmtPnl(monthPnl)}</div>
+                <div style={{fontSize:16,fontWeight:900,color:monthPnl>=0?'#60a5fa':'#f87171',marginTop:3}}>{fmtPnl(monthPnl)}</div>
               </div>
               <div style={{display:'flex',alignItems:'center',gap:4}}>
                 <button className="btn-icon" style={{padding:'4px 10px',fontSize:16}} onClick={()=>setCalMonth(new Date(year,month-1,1))}>‹</button>
-                <span style={{fontSize:13,fontWeight:700,minWidth:86,textAlign:'center'}}>{MONTHS[month].slice(0,3)} {year}</span>
+                <span style={{fontSize:14,fontWeight:700,minWidth:90,textAlign:'center'}}>{MONTHS[month].slice(0,3)} {year}</span>
                 <button className="btn-icon" style={{padding:'4px 10px',fontSize:16}} onClick={()=>setCalMonth(new Date(year,month+1,1))}>›</button>
               </div>
             </div>
 
             {/* Column headers */}
-            <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr) 68px',gap:3,marginBottom:4}}>
-              {DAYS.map((d,i)=><div key={i} style={{textAlign:'center',fontSize:12,fontWeight:700,color:'var(--text-muted)',padding:'3px 0'}}>{d}</div>)}
-              <div style={{textAlign:'center',fontSize:10,fontWeight:700,color:'var(--text-muted)',padding:'3px 0'}}>WK</div>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr) 72px',gap:4,marginBottom:4}}>
+              {DAYS.map((d,i)=>(
+                <div key={i} style={{textAlign:'center',fontSize:12,fontWeight:700,color:'rgba(255,255,255,.5)',padding:'4px 0',letterSpacing:'.3px'}}>{d}</div>
+              ))}
+              <div style={{textAlign:'center',fontSize:10,fontWeight:700,color:'#60a5fa',padding:'4px 0',letterSpacing:'.5px'}}>WK</div>
             </div>
 
             {/* Rows */}
             {Array.from({length:totalWeeks},(_,wi)=>{
               const wp = weekPnl(wi);
               return (
-                <div key={wi} style={{display:'grid',gridTemplateColumns:'repeat(7,1fr) 68px',gap:3,marginBottom:3}}>
+                <div key={wi} style={{display:'grid',gridTemplateColumns:'repeat(7,1fr) 72px',gap:4,marginBottom:4}}>
                   {Array.from({length:7},(_,di)=>{
                     const dn=dayNum(wi,di);
-                    if(dn<1||dn>daysInMonth) return <div key={di} style={{height:62}}/>;
+                    if(dn<1||dn>daysInMonth) return <div key={di} style={{height:64,borderRadius:8,background:'rgba(255,255,255,.015)',border:'1px solid rgba(255,255,255,.04)'}}/>;
                     const dateStr=ds(dn);
                     const pnl=dayMap[dateStr];
                     const has=pnl!==undefined;
@@ -247,41 +249,73 @@ export default function Dashboard() {
                     const isToday=dateStr===today;
                     return (
                       <div key={di} style={{
-                        height:62,borderRadius:7,
-                        display:'flex',flexDirection:'column',
-                        alignItems:'flex-start',justifyContent:'space-between',
-                        padding:'5px 6px',boxSizing:'border-box',
-                        background:has?(pos?'rgba(59,130,246,.22)':'rgba(239,68,68,.22)'):'rgba(255,255,255,.03)',
-                        border:`1px solid ${isToday?'#3b82f6':has?(pos?'rgba(59,130,246,.4)':'rgba(239,68,68,.4)'):'rgba(255,255,255,.07)'}`,
-                        boxShadow: isToday?'0 0 0 1px rgba(59,130,246,.3)':'none',
+                        height:64, borderRadius:8,
+                        display:'flex', flexDirection:'column',
+                        alignItems:'flex-start', justifyContent:'space-between',
+                        padding:'6px 7px', boxSizing:'border-box',
+                        background: has
+                          ? pos ? 'rgba(59,130,246,.28)' : 'rgba(239,68,68,.28)'
+                          : 'rgba(255,255,255,.05)',
+                        border: `1px solid ${
+                          isToday ? '#60a5fa'
+                          : has ? (pos ? 'rgba(96,165,250,.6)' : 'rgba(248,113,113,.6)')
+                          : 'rgba(255,255,255,.1)'
+                        }`,
+                        boxShadow: isToday ? '0 0 0 2px rgba(96,165,250,.25)' : 'none',
                       }}>
-                        <div style={{fontSize:12,fontWeight:700,color:isToday?'#3b82f6':has?'rgba(255,255,255,.85)':'rgba(255,255,255,.3)'}}>{dn}</div>
-                        {has&&<div style={{fontSize:12,fontWeight:900,color:pos?'#60a5fa':'#f87171',letterSpacing:'-0.3px',lineHeight:1}}>{fmtShort(pnl)}</div>}
+                        <div style={{
+                          fontSize:13, fontWeight:700, lineHeight:1,
+                          color: isToday ? '#93c5fd'
+                            : has ? 'rgba(255,255,255,.95)'
+                            : 'rgba(255,255,255,.45)',
+                        }}>{dn}</div>
+                        {has && (
+                          <div style={{
+                            fontSize:13, fontWeight:900,
+                            color: pos ? '#93c5fd' : '#fca5a5',
+                            letterSpacing:'-0.3px', lineHeight:1,
+                          }}>{fmtShort(pnl)}</div>
+                        )}
                       </div>
                     );
                   })}
+                  {/* Weekly cell */}
                   <div style={{
-                    height:62,borderRadius:7,
-                    display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:2,
-                    background:wp.days>0?(wp.total>=0?'rgba(59,130,246,.14)':'rgba(239,68,68,.14)'):'rgba(255,255,255,.02)',
-                    border:`1px solid ${wp.days>0?(wp.total>=0?'rgba(59,130,246,.3)':'rgba(239,68,68,.3)'):'rgba(255,255,255,.06)'}`,
+                    height:64, borderRadius:8,
+                    display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:2,
+                    background: wp.days>0
+                      ? (wp.total>=0 ? 'rgba(59,130,246,.2)' : 'rgba(239,68,68,.2)')
+                      : 'rgba(255,255,255,.03)',
+                    border: `1px solid ${wp.days>0
+                      ? (wp.total>=0 ? 'rgba(96,165,250,.4)' : 'rgba(248,113,113,.4)')
+                      : 'rgba(255,255,255,.08)'}`,
                     boxSizing:'border-box',
                   }}>
-                    {wp.days>0?(
+                    {wp.days>0 ? (
                       <>
-                        <div style={{fontSize:9,fontWeight:700,color:'rgba(255,255,255,.4)',letterSpacing:'.5px'}}>WK</div>
-                        <div style={{fontSize:12,fontWeight:900,color:wp.total>=0?'#60a5fa':'#f87171',letterSpacing:'-0.3px'}}>{fmtShort(wp.total)}</div>
-                        <div style={{fontSize:9,color:'rgba(255,255,255,.35)'}}>{wp.days}d</div>
+                        <div style={{fontSize:8,fontWeight:700,color:'rgba(255,255,255,.45)',letterSpacing:'1px'}}>WK</div>
+                        <div style={{fontSize:13,fontWeight:900,color:wp.total>=0?'#93c5fd':'#fca5a5',letterSpacing:'-0.3px',lineHeight:1}}>
+                          {fmtShort(wp.total)}
+                        </div>
+                        <div style={{fontSize:9,color:'rgba(255,255,255,.4)'}}>{wp.days}d</div>
                       </>
-                    ):<div style={{fontSize:10,color:'rgba(255,255,255,.2)'}}>—</div>}
+                    ) : (
+                      <div style={{fontSize:11,color:'rgba(255,255,255,.18)'}}>—</div>
+                    )}
                   </div>
                 </div>
               );
             })}
 
-            <div style={{display:'flex',gap:14,marginTop:8,fontSize:11,color:'var(--text-secondary)'}}>
-              <span style={{display:'flex',alignItems:'center',gap:4}}><span style={{width:8,height:8,borderRadius:'50%',background:'#3b82f6',display:'inline-block'}}/>Profit</span>
-              <span style={{display:'flex',alignItems:'center',gap:4}}><span style={{width:8,height:8,borderRadius:'50%',background:'#ef4444',display:'inline-block'}}/>Loss</span>
+            <div style={{display:'flex',gap:16,marginTop:8,fontSize:11}}>
+              <span style={{display:'flex',alignItems:'center',gap:5}}>
+                <span style={{width:9,height:9,borderRadius:3,background:'rgba(96,165,250,.6)',display:'inline-block'}}/>
+                <span style={{color:'rgba(255,255,255,.5)'}}>Profit</span>
+              </span>
+              <span style={{display:'flex',alignItems:'center',gap:5}}>
+                <span style={{width:9,height:9,borderRadius:3,background:'rgba(248,113,113,.6)',display:'inline-block'}}/>
+                <span style={{color:'rgba(255,255,255,.5)'}}>Loss</span>
+              </span>
             </div>
           </div>
         </div>
