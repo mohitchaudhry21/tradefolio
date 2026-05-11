@@ -60,7 +60,7 @@ export default function Journal() {
     jData.postReview?.trim()     ||
     jData.emotions?.trim()       ||
     jData.lessons?.trim()        ||
-    (trade?.setup && trade.setup.trim())          ||
+    (trade?.setup && (Array.isArray(trade.setup) ? trade.setup.length > 0 : trade.setup.trim())) ||
     (trade?.mistakes?.length > 0)                 ||
     (jData.checklist?.length > 0)                 ||
     trade?.status === 'Breakeven'
@@ -376,6 +376,17 @@ export default function Journal() {
                       {(t.pnl||0) >= 0 ? '+' : ''}{(t.pnl||0).toFixed(2)}
                     </span>
                   </div>
+                  {/* Setup pills */}
+                  {(() => {
+                    const setups = Array.isArray(t.setup) ? t.setup : t.setup ? [t.setup] : [];
+                    return setups.length > 0 ? (
+                      <div style={{ marginTop: 5, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                        {setups.map(s => (
+                          <span key={s} style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: 'rgba(59,130,246,.15)', color: 'var(--blue-bright)', border: '1px solid rgba(59,130,246,.25)' }}>{s}</span>
+                        ))}
+                      </div>
+                    ) : null;
+                  })()}
                   {/* Journal completion indicators */}
                   <div style={{ marginTop: 5, display: 'flex', alignItems: 'center', gap: 4 }}>
                     {[
@@ -556,22 +567,40 @@ export default function Journal() {
 
               {/* ── SETUP + MISTAKES ── */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                {/* Setup dropdown */}
+                {/* Setup — multi-select toggle pills */}
                 <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '16px' }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 10 }}>📐 SETUP</div>
-                  <select
-                    className="form-control"
-                    value={selTrade.setup || ''}
-                    onChange={e => updateTrade(selTrade.id, { setup: e.target.value })}
-                    style={{ background: 'var(--bg-input)', border: '1px solid var(--border)', fontSize: 13 }}
-                  >
-                    <option value="">Select setup...</option>
-                    {SETUP_GROUPS_MERGED.map(g => (
-                      <optgroup key={g.label} label={`── ${g.label} ──`}>
-                        {g.opts.map(o => <option key={o} value={o}>{o}</option>)}
-                      </optgroup>
-                    ))}
-                  </select>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 10 }}>
+                    📐 SETUP
+                    {(Array.isArray(selTrade.setup) ? selTrade.setup : selTrade.setup ? [selTrade.setup] : []).length > 0 && (
+                      <span style={{ marginLeft: 6, background: 'rgba(59,130,246,.2)', color: 'var(--blue-bright)', borderRadius: 10, padding: '1px 7px', fontSize: 10 }}>
+                        {(Array.isArray(selTrade.setup) ? selTrade.setup : [selTrade.setup]).length}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                    {SETUP_GROUPS_MERGED.map(g => g.opts.map(o => {
+                      const currentSetups = Array.isArray(selTrade.setup)
+                        ? selTrade.setup
+                        : selTrade.setup ? [selTrade.setup] : [];
+                      const active = currentSetups.includes(o);
+                      return (
+                        <button key={o} type="button"
+                          onClick={() => {
+                            const next = active
+                              ? currentSetups.filter(x => x !== o)
+                              : [...currentSetups, o];
+                            updateTrade(selTrade.id, { setup: next });
+                          }}
+                          style={{
+                            padding: '4px 10px', borderRadius: 20, fontSize: 11, cursor: 'pointer', border: '1px solid',
+                            background:  active ? 'rgba(59,130,246,.2)' : 'var(--bg-hover)',
+                            color:       active ? 'var(--blue-bright)'  : 'var(--text-secondary)',
+                            borderColor: active ? 'rgba(59,130,246,.4)' : 'var(--border)',
+                            fontWeight:  active ? 700 : 400,
+                          }}>{o}</button>
+                      );
+                    }))}
+                  </div>
                 </div>
 
                 {/* Mistakes — multi-select toggle pills */}
