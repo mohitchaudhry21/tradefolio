@@ -153,6 +153,43 @@ export default function Analytics() {
       .sort((a,b)=>Math.abs(b.pnl)-Math.abs(a.pnl)).slice(0,5);
   },[filteredTrades]);
 
+  // Setup breakdown
+  const setupStats = useMemo(() => {
+    const map = {};
+    const brokeragePerLot = stats.brokeragePerLot || 0;
+    const tradeComm = t => brokeragePerLot > 0 ? brokeragePerLot * (t.size||0) : (t.fees||0);
+    const netPnl = t => (t.pnl||0) - tradeComm(t);
+
+    filteredTrades.forEach(t => {
+      // Handle both string and array setup
+      const setups = Array.isArray(t.setup)
+        ? t.setup
+        : t.setup ? [t.setup] : ['No Setup'];
+      setups.forEach(s => {
+        if (!map[s]) map[s] = { wins:0, losses:0, be:0, total:0, pnl:0 };
+        map[s].total++;
+        map[s].pnl += netPnl(t);
+        if (t.status==='Win')       map[s].wins++;
+        else if (t.status==='Loss') map[s].losses++;
+        else                        map[s].be++;
+      });
+    });
+
+    return Object.entries(map)
+      .map(([setup, d]) => ({
+        setup,
+        wins:   d.wins,
+        losses: d.losses,
+        be:     d.be,
+        total:  d.total,
+        pnl:    parseFloat(d.pnl.toFixed(2)),
+        wr:     (d.wins+d.losses) > 0
+          ? ((d.wins/(d.wins+d.losses))*100).toFixed(1)
+          : '0.0',
+      }))
+      .sort((a,b) => b.total - a.total);
+  }, [filteredTrades, stats.brokeragePerLot]);
+
   // Sessions
   const sessions = useMemo(()=>{
     const map={asian:{pnl:0,total:0,wins:0},london:{pnl:0,total:0,wins:0},newyork:{pnl:0,total:0,wins:0}};
@@ -416,6 +453,84 @@ export default function Analytics() {
               );
             })}
           </div>
+        </div>
+
+        {/* ── Setup Breakdown ─────────────────────────────────────────── */}
+        <div className="card" style={{marginBottom:16}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+            <div>
+              <div className="card-title" style={{margin:0}}>📐 Setup Performance</div>
+              <div style={{fontSize:11,color:'var(--text-muted)',marginTop:3}}>Win/Loss/BE breakdown for every setup level</div>
+            </div>
+            <span style={{background:'var(--bg-hover)',border:'1px solid var(--border)',borderRadius:5,padding:'2px 9px',fontSize:11,color:'var(--text-secondary)',fontWeight:600}}>{period}</span>
+          </div>
+
+          {setupStats.length === 0 ? (
+            <div style={{textAlign:'center',padding:'24px 0',color:'var(--text-muted)',fontSize:13}}>No trades with setups in this period</div>
+          ) : (
+            <div style={{overflowX:'auto'}}>
+              <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+                <thead>
+                  <tr style={{borderBottom:'2px solid var(--border)'}}>
+                    {['Setup','Trades','Wins','Losses','BE','Win Rate','Net P&L','Result'].map(h=>(
+                      <th key={h} style={{padding:'8px 12px',textAlign:h==='Setup'?'left':'center',fontSize:11,fontWeight:700,color:'var(--text-muted)',letterSpacing:'.5px',whiteSpace:'nowrap'}}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {setupStats.map(s=>{
+                    const isNoSetup = s.setup === 'No Setup';
+                    return (
+                      <tr key={s.setup} style={{borderBottom:'1px solid var(--border)',transition:'background .1s'}}
+                        onMouseEnter={e=>e.currentTarget.style.background='var(--bg-hover)'}
+                        onMouseLeave={e=>e.currentTarget.style.background=''}>
+                        <td style={{padding:'11px 12px'}}>
+                          <span style={{
+                            fontWeight: isNoSetup ? 500 : 700,
+                            fontSize: 13,
+                            color: isNoSetup ? 'var(--text-muted)' : 'var(--text-primary)',
+                            background: isNoSetup ? 'transparent' : 'rgba(59,130,246,.1)',
+                            border: isNoSetup ? 'none' : '1px solid rgba(59,130,246,.2)',
+                            borderRadius: 5, padding: isNoSetup ? 0 : '2px 8px',
+                          }}>{s.setup}</span>
+                        </td>
+                        <td style={{padding:'11px 12px',textAlign:'center',fontWeight:700}}>{s.total}</td>
+                        <td style={{padding:'11px 12px',textAlign:'center'}}>
+                          <span style={{fontWeight:700,color:'#4ade80',background:'rgba(74,222,128,.1)',borderRadius:5,padding:'2px 10px'}}>{s.wins}</span>
+                        </td>
+                        <td style={{padding:'11px 12px',textAlign:'center'}}>
+                          <span style={{fontWeight:700,color:'var(--red)',background:'var(--red-dim)',borderRadius:5,padding:'2px 10px'}}>{s.losses}</span>
+                        </td>
+                        <td style={{padding:'11px 12px',textAlign:'center'}}>
+                          <span style={{fontWeight:700,color:'var(--text-muted)',background:'var(--bg-hover)',borderRadius:5,padding:'2px 10px'}}>{s.be}</span>
+                        </td>
+                        <td style={{padding:'11px 12px',textAlign:'center'}}>
+                          <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:3}}>
+                            <span style={{fontWeight:800,color:parseFloat(s.wr)>=50?'#4ade80':'var(--red)'}}>{s.wr}%</span>
+                            <div style={{width:60,height:5,background:'var(--bg-hover)',borderRadius:3,overflow:'hidden'}}>
+                              <div style={{width:`${s.wr}%`,height:'100%',background:parseFloat(s.wr)>=50?'#4ade80':'var(--red)',borderRadius:3}}/>
+                            </div>
+                          </div>
+                        </td>
+                        <td style={{padding:'11px 12px',textAlign:'center',fontWeight:800,color:s.pnl>=0?'#60a5fa':'#f87171',whiteSpace:'nowrap'}}>
+                          {s.pnl>=0?'+':''}{fmtK(s.pnl)}
+                        </td>
+                        <td style={{padding:'11px 12px',textAlign:'center'}}>
+                          <span style={{
+                            fontSize:10,fontWeight:700,borderRadius:5,padding:'3px 10px',
+                            background: s.pnl>0&&parseFloat(s.wr)>=50 ? 'rgba(74,222,128,.15)' : s.pnl<0||parseFloat(s.wr)<40 ? 'var(--red-dim)' : 'var(--bg-hover)',
+                            color: s.pnl>0&&parseFloat(s.wr)>=50 ? '#4ade80' : s.pnl<0||parseFloat(s.wr)<40 ? 'var(--red)' : 'var(--text-muted)',
+                          }}>
+                            {s.pnl>0&&parseFloat(s.wr)>=50 ? '✓ Edge' : s.pnl<0||parseFloat(s.wr)<40 ? '✗ Review' : '~ Neutral'}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
 
         {/* Your Stats big table + Win/Loss dist + Recent */}
