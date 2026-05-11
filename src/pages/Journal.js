@@ -465,6 +465,23 @@ export default function Journal() {
                   <span style={{ color: 'var(--text-muted)' }}>•</span>
                   <span>RR <strong style={{ color: dispRR === '—' ? 'var(--text-muted)' : 'var(--text-primary)' }}>{dispRR}</strong></span>
                 </div>
+                {/* Setup pills in header */}
+                {(() => {
+                  const setups = Array.isArray(selTrade.setup)
+                    ? selTrade.setup
+                    : selTrade.setup ? [selTrade.setup] : [];
+                  return setups.length > 0 ? (
+                    <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                      {setups.map(s => (
+                        <span key={s} style={{
+                          fontSize: 10, fontWeight: 700, padding: '3px 9px', borderRadius: 5,
+                          background: 'rgba(59,130,246,.18)', color: 'var(--blue-bright)',
+                          border: '1px solid rgba(59,130,246,.35)',
+                        }}>📐 {s}</span>
+                      ))}
+                    </div>
+                  ) : null;
+                })()}
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, flexShrink: 0 }}>
                 <button className="btn btn-primary btn-sm" onClick={() => {
