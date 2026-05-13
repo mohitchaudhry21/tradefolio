@@ -104,22 +104,33 @@ export default function Dashboard() {
   }, [trades, stats.statsStartDate, stats.statsEndDate]);
 
   const ds = d=>`${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-  const dayNum = (wi,di) => wi*7 + di - startOffset + 1;   // shared formula
+  const dayNum = (wi,di) => wi*7 + di - startOffset + 1;
+
+  // Get correct date string for any day number including those outside current month
+  const dsAny = (d) => {
+    if (d >= 1 && d <= daysInMonth) return ds(d);
+    if (d < 1) {
+      const prev = new Date(year, month, 0); // last day of prev month
+      const prevDay = prev.getDate() + d;
+      return `${prev.getFullYear()}-${String(prev.getMonth()+1).padStart(2,'0')}-${String(prevDay).padStart(2,'0')}`;
+    }
+    const nextDate = new Date(year, month+1, d - daysInMonth);
+    return `${nextDate.getFullYear()}-${String(nextDate.getMonth()+1).padStart(2,'0')}-${String(nextDate.getDate()).padStart(2,'0')}`;
+  };
+
+  const weekPnl = wi => {
+    let total=0, days=0;
+    for (let di=0; di<7; di++) {
+      const dn = dayNum(wi, di);
+      const v  = dayMap[dsAny(dn)];
+      if (v !== undefined) { total += v; days++; }
+    }
+    return { total: parseFloat(total.toFixed(2)), days };
+  };
 
   const monthPnl = useMemo(()=>{
     let t=0; for(let d=1;d<=daysInMonth;d++) t+=dayMap[ds(d)]||0; return parseFloat(t.toFixed(2));
   }, [dayMap,daysInMonth,year,month]);
-
-  const weekPnl = wi=>{
-    let total=0,days=0;
-    for(let di=0;di<7;di++){
-      const dn=dayNum(wi,di);
-      if(dn<1||dn>daysInMonth) continue;
-      const v=dayMap[ds(dn)];
-      if(v!==undefined){total+=v;days++;}
-    }
-    return {total:parseFloat(total.toFixed(2)),days};
-  };
 
   const today  = new Date().toISOString().slice(0,10);
   
