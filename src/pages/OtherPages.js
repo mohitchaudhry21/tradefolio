@@ -185,60 +185,77 @@ function parseMT5Text(rawText, brokerOffsetHrs, userOffsetHrs) {
     };
   };
 
-  const lines = rawText.split('\n').map(l=>l.trim()).filter(Boolean);
   const trades = [];
+  const lines = rawText.split('\n').map(l=>l.trim()).filter(Boolean);
 
-  // Pattern 1 — Detail popup view
-  // Looks for: symbol/direction/size, price→price, dates, charges
-  const detailBlock = rawText.match(
-    /([A-Z]+[!.]?[A-Z]*)\s+(buy|sell)\s+([\d.]+)[\s\S]*?([\d.]+)\s*[→\->]+\s*([\d.]+)[\s\S]*?(\d{4}[.\-]\d{2}[.\-]\d{2}\s+\d{2}:\d{2}(?::\d{2})?)\s*[→\->\s]+\s*(\d{4}[.\-]\d{2}[.\-]\d{2}\s+\d{2}:\d{2}(?::\d{2})?)/gi
-  );
+  // MT5 Deals list format — two lines per trade:
+  // Line A: "XAUUSD!R buy 0.3 196.40"  (symbol direction size pnl)
+  // Line B: "4536.913 → 4543.4595 2026.05.05 09:37:13"  (entry → exit datetime)
+  for (let i = 0; i < lines.length - 1; i++) {
+    const lineA = lines[i];
+    const lineB = lines[i+1];
 
-  // Pattern 2 — List view rows
-  // Each trade is: "XAUUSD!R buy 0.3\n4536.913 → 4543.4595\n2026.05.05 09:37:13\n196.40"
-  const listPattern = /([A-Z]+[!.]?R?)\s+(buy|sell)\s+([\d.]+)\s*[\r\n]+([\d.]+)\s*[→>\-]+\s*([\d.]+)\s*[\r\n]+(\d{4}[.\-]\d{2}[.\-]\d{2}\s+\d{2}:\d{2}(?::\d{2})?)\s*[\r\n]+([-+]?[\d.]+)/gi;
-  let match;
-  while ((match = listPattern.exec(rawText)) !== null) {
-    const [,sym,dir,size,ep,xp,dt,pnlStr] = match;
-    const dt1 = convertDt(dt);
-    const pnl = parseFloat(pnlStr)||0;
+    // Match Line A: symbol + buy/sell + size + pnl
+    const mA = lineA.match(/([A-Z]+[!.]?[A-Z0-9]*)\s+(buy|sell)\s+([\d.]+)\s+([-\d.]+)/i);
+    if (!mA) continue;
+
+    // Match Line B: entry price, separator, exit price, date
+    const mB = lineB.match(/([\d.]+)\s*[→\->—–]+\s*([\d.]+)\s+(\d{4}[.\-]\d{2}[.\-]\d{2}\s+\d{2}:\d{2}(?::\d{2})?)/);
+    if (!mB) continue;
+
+    const [, sym, dir, size, pnlStr] = mA;
+    const [, ep, xp, dtStr] = mB;
+    const dt = convertDt(dtStr);
+    const pnl = parseFloat(pnlStr) || 0;
+
     trades.push({
       symbol:     sym.replace(/[!.]R$/i,'').replace(/[!.]$/,'').toUpperCase(),
-      side:       dir.toLowerCase()==='sell'?'Short':'Long',
-      size:       parseFloat(size)||0,
-      entryPrice: parseFloat(ep)||0,
-      exitPrice:  parseFloat(xp)||0,
-      entryDate:  dt1.date,
-      entryTime:  dt1.time,
-      exitDate:   dt1.date,
-      exitTime:   '',
-      pnl:        pnl,
+      side:       dir.toLowerCase() === 'sell' ? 'Short' : 'Long',
+      size:       parseFloat(size) || 0,
+      entryPrice: parseFloat(ep) || 0,
+      exitPrice:  parseFloat(xp) || 0,
+      entryDate:  dt.date,
+      entryTime:  dt.time,
+      exitDate:   dt.date,
+      exitTime:   dt.time,
+      pnl,
       fees:       0,
-      status:     pnl>0.5?'Win':pnl<-0.5?'Loss':'Breakeven',
+      status:     pnl > 0.5 ? 'Win' : pnl < -0.5 ? 'Loss' : 'Breakeven',
       source:     'MT5 Screenshot',
     });
+
+    i++; // skip Line B since we consumed it
   }
 
-  // Pattern 3 — Detail popup (entry→exit times both visible)
-  const detailPattern = /([A-Z]+[!.]?R?)\s+(buy|sell)\s+([\d.]+)[\s\S]*?([\d]+\.[\d]+)\s*[→>\-]+\s*([\d]+\.[\d]+)[\s\S]*?(\d{4}[.\-]\d{2}[.\-]\d{2}\s+\d{2}:\d{2}(?::\d{2})?)\s*[→>\-]+\s*(\d{4}[.\-]\d{2}[.\-]\d{2}\s+\d{2}:\d{2}(?::\d{2})?)[\s\S]*?(?:Charges?|Commission)[\s\S]*?([+-]?[\d.]+)[\s\S]*?([-+]?[\d.]+)\s*$/i;
-  const dm = rawText.match(detailPattern);
-  if (dm && trades.length === 0) {
-    const [,sym,dir,size,ep,xp,dt1s,dt2s,charges,pnlStr] = dm;
-    const dt1 = convertDt(dt1s); const dt2 = convertDt(dt2s);
-    const pnl = parseFloat(pnlStr)||0;
-    trades.push({
-      symbol:     sym.replace(/[!.]R$/i,'').toUpperCase(),
-      side:       dir.toLowerCase()==='sell'?'Short':'Long',
-      size:       parseFloat(size)||0,
-      entryPrice: parseFloat(ep)||0,
-      exitPrice:  parseFloat(xp)||0,
-      entryDate:  dt1.date, entryTime: dt1.time,
-      exitDate:   dt2.date, exitTime:  dt2.time,
-      pnl:        pnl,
-      fees:       Math.abs(parseFloat(charges)||0),
-      status:     pnl>0.5?'Win':pnl<-0.5?'Loss':'Breakeven',
-      source:     'MT5 Screenshot',
-    });
+  // Also try MT5 detail popup format (single trade with full detail)
+  // "4726.577 → 4736.075" ... "2026.05.07 12:04:59 → 2026.05.07 14:56:17" ... "Charges: -3.00" ... "284.94"
+  if (trades.length === 0) {
+    const symMatch   = rawText.match(/([A-Z]+[!.]?[A-Z0-9]*)\s+(buy|sell)\s+([\d.]+)/i);
+    const priceMatch = rawText.match(/([\d.]+)\s*[→\->—–]+\s*([\d.]+)/);
+    const dt1Match   = rawText.match(/(\d{4}[.\-]\d{2}[.\-]\d{2}\s+\d{2}:\d{2}(?::\d{2})?)\s*[→\->—–]+\s*(\d{4}[.\-]\d{2}[.\-]\d{2}\s+\d{2}:\d{2}(?::\d{2})?)/);
+    const chargeMatch= rawText.match(/[Cc]harges?[:\s]+([-\d.]+)/);
+    const pnlMatch   = rawText.match(/([-\d.]+)\s*$/m);
+
+    if (symMatch && priceMatch) {
+      const [,sym,dir,size] = symMatch;
+      const [,ep,xp] = priceMatch;
+      const dt1 = dt1Match ? convertDt(dt1Match[1]) : {date:'',time:''};
+      const dt2 = dt1Match ? convertDt(dt1Match[2]) : dt1;
+      const fees = chargeMatch ? Math.abs(parseFloat(chargeMatch[1])||0) : 0;
+      const pnl  = pnlMatch   ? parseFloat(pnlMatch[1])||0 : 0;
+      trades.push({
+        symbol:     sym.replace(/[!.]R$/i,'').toUpperCase(),
+        side:       dir.toLowerCase()==='sell'?'Short':'Long',
+        size:       parseFloat(size)||0,
+        entryPrice: parseFloat(ep)||0,
+        exitPrice:  parseFloat(xp)||0,
+        entryDate:  dt1.date, entryTime: dt1.time,
+        exitDate:   dt2.date, exitTime:  dt2.time,
+        pnl, fees,
+        status:     pnl>0.5?'Win':pnl<-0.5?'Loss':'Breakeven',
+        source:     'MT5 Screenshot',
+      });
+    }
   }
 
   return trades;
