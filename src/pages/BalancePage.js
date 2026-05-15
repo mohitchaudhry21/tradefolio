@@ -172,6 +172,8 @@ export default function BalancePage() {
   const totalDeposits    = rows.filter(r=>r.isD).reduce((s,r)=>s+r.net,0);
   const totalTradePnl    = rows.filter(r=>r.isTrade).reduce((s,r)=>s+r.net,0);
   const currentThreshold = weeklyData.length?weeklyData[weeklyData.length-1].newThreshold:startingBalance;
+  const currentTradeBal  = weeklyData.length?weeklyData[weeklyData.length-1].tradeOnlyBal:startingBalance;
+  const aboveThreshNow   = parseFloat((currentTradeBal - currentThreshold).toFixed(2));
   const withdrawalRows   = rows.filter(r=>r.isW);
 
   return (
@@ -209,18 +211,20 @@ export default function BalancePage() {
       <div className="page-body">
 
         {/* Summary cards */}
-        <div style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:12,marginBottom:20}}>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:12,marginBottom:20}}>
           {[
             {label:'STARTING BALANCE',  val:fmtA(startingBalance),     color:'var(--text-primary)'},
             {label:'TOTAL DEPOSITS',    val:'+'+fmtA(totalDeposits),    color:'#4ade80'},
             {label:'PROFIT TAKEN OUT',  val:'-'+fmtA(totalProfitTaken), color:'#f59e0b'},
             {label:'CAPITAL WITHDRAWN', val:'-'+fmtA(totalCapitalOut),  color:'#94a3b8'},
             {label:'TRADE P&L (NET)',   val:fmtS(totalTradePnl),        color:clr(totalTradePnl)},
-            {label:'CURRENT BALANCE',   val:fmtA(currentBalance),       color:clr(currentBalance-startingBalance), big:true},
+            {label:'TRADE BALANCE',     val:fmtA(currentTradeBal),      color:clr(currentTradeBal-currentThreshold), sub:`vs threshold ${fmtA(currentThreshold)}`, subColor: aboveThreshNow>0?'#f59e0b':'var(--text-muted)'},
+            {label:'ACTUAL BALANCE',    val:fmtA(currentBalance),       color:clr(currentBalance-startingBalance),   sub: totalDeposits>0?`incl. ${fmtA(totalDeposits)} deposits`:'', big:true},
           ].map(s=>(
             <div key={s.label} style={{background:'var(--bg-card)',border:`1px solid ${s.big?'rgba(59,130,246,.3)':'var(--border)'}`,borderRadius:10,padding:'14px 16px'}}>
               <div style={{fontSize:9,fontWeight:700,color:'var(--text-muted)',letterSpacing:'.8px',marginBottom:7}}>{s.label}</div>
-              <div style={{fontSize:s.big?20:17,fontWeight:900,color:s.color,letterSpacing:'-0.5px'}}>{s.val}</div>
+              <div style={{fontSize:s.big?18:16,fontWeight:900,color:s.color,letterSpacing:'-0.5px'}}>{s.val}</div>
+              {s.sub && <div style={{fontSize:10,color:s.subColor||'var(--text-muted)',marginTop:4}}>{s.sub}</div>}
             </div>
           ))}
         </div>
@@ -246,10 +250,21 @@ export default function BalancePage() {
                   }}>{r}%</button>
                 ))}
               </div>
-              <div style={{padding:'10px 16px',background:'rgba(245,158,11,.08)',borderRadius:8,border:'1px solid rgba(245,158,11,.25)'}}>
-                <div style={{fontSize:9,color:'#f59e0b',fontWeight:700,marginBottom:2}}>CURRENT THRESHOLD</div>
-                <div style={{fontSize:18,fontWeight:900,color:'#f59e0b'}}>{fmtA(currentThreshold)}</div>
-                <div style={{fontSize:9,color:'var(--text-muted)'}}>balance must exceed this</div>
+              <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
+                <div style={{padding:'10px 16px',background:'rgba(245,158,11,.08)',borderRadius:8,border:'1px solid rgba(245,158,11,.25)'}}>
+                  <div style={{fontSize:9,color:'#f59e0b',fontWeight:700,marginBottom:2}}>CURRENT THRESHOLD</div>
+                  <div style={{fontSize:18,fontWeight:900,color:'#f59e0b'}}>{fmtA(currentThreshold)}</div>
+                  <div style={{fontSize:9,color:'var(--text-muted)'}}>locked in via profit splits</div>
+                </div>
+                <div style={{padding:'10px 16px',background:aboveThreshNow>0?'rgba(74,222,128,.08)':'rgba(255,255,255,.03)',borderRadius:8,border:`1px solid ${aboveThreshNow>0?'rgba(74,222,128,.25)':'rgba(255,255,255,.08)'}`}}>
+                  <div style={{fontSize:9,color:aboveThreshNow>0?'#4ade80':'var(--text-muted)',fontWeight:700,marginBottom:2}}>TRADE BAL vs THRESHOLD</div>
+                  <div style={{fontSize:18,fontWeight:900,color:aboveThreshNow>0?'#4ade80':'#f87171'}}>
+                    {aboveThreshNow>=0?'+':''}{fmtA(aboveThreshNow)}
+                  </div>
+                  <div style={{fontSize:9,color:'var(--text-muted)'}}>
+                    {aboveThreshNow>0?'⚡ split may be due':'below threshold · keep trading'}
+                  </div>
+                </div>
               </div>
             </div>
           </div>
