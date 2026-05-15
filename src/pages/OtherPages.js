@@ -723,7 +723,33 @@ export function ImportPage() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // ── Export all trades ───────────────────────────────────────────────────
+  // Check which preview trades already exist (for duplicate highlighting)
+  const isDuplicate = (t) => {
+    const existingPosIds = new Set(trades.map(x=>x.positionId).filter(Boolean));
+    if (t.positionId && existingPosIds.has(t.positionId)) return true;
+    const d = t.exitDate||t.entryDate||'';
+    const ep = t.entryPrice ? Math.round(parseFloat(t.entryPrice)) : null;
+    const xp = t.exitPrice  ? Math.round(parseFloat(t.exitPrice))  : null;
+    const sz = parseFloat(t.size||0).toFixed(2);
+    if (t.isWithdrawal||t.isDeposit) {
+      return trades.some(x=>(x.isWithdrawal||x.isDeposit) && Math.abs((x.pnl||0)-(t.pnl||0))<0.01 && (x.exitDate||x.entryDate||'')===d);
+    }
+    if (!ep) return false;
+    // Check with date
+    const keyWd  = xp ? `${ep}-${xp}-${sz}-${d}` : `ep-${ep}-${sz}-${d}`;
+    // Check without date
+    const keyNd  = xp ? `${ep}-${xp}-${sz}` : `ep-${ep}-${sz}`;
+    return trades.some(x => {
+      if (!x.entryPrice) return false;
+      const xep = Math.round(parseFloat(x.entryPrice));
+      const xxp = x.exitPrice ? Math.round(parseFloat(x.exitPrice)) : null;
+      const xsz = parseFloat(x.size||0).toFixed(2);
+      const xd  = x.exitDate||x.entryDate||'';
+      const xkWd = xxp ? `${xep}-${xxp}-${xsz}-${xd}` : `ep-${xep}-${xsz}-${xd}`;
+      const xkNd = xxp ? `${xep}-${xxp}-${xsz}` : `ep-${xep}-${xsz}`;
+      return xkWd === keyWd || xkNd === keyNd;
+    });
+  };
   const exportAll = () => {
     if (!trades.length) return;
     const headers = ['symbol','side','status','entryDate','entryTime','exitDate','exitTime','entryPrice','exitPrice','size','fees','pnl','rMultiple','setup','timeframe','notes','emotion'];
@@ -938,9 +964,14 @@ export function ImportPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {preview.slice(0, 20).map((t,i) => (
-                    <tr key={i}>
-                      <td style={{ fontWeight:700 }}>{t.symbol}</td>
+                  {preview.slice(0, 20).map((t,i) => {
+                    const dup = isDuplicate(t);
+                    return (
+                    <tr key={i} style={{opacity: dup ? 0.5 : 1, background: dup ? 'rgba(245,158,11,.04)' : ''}}>
+                      <td style={{ fontWeight:700 }}>
+                        {t.symbol}
+                        {dup && <span style={{marginLeft:5,fontSize:9,background:'rgba(245,158,11,.2)',color:'#f59e0b',borderRadius:4,padding:'1px 5px',fontWeight:700}}>DUP</span>}
+                      </td>
                       <td><span className={`badge badge-${t.side.toLowerCase()}`}>{t.side}</span></td>
                       <td><span className={`badge badge-${t.status==='Win'?'win':t.status==='Loss'?'loss':'be'}`}>{t.status}</span></td>
                       <td style={{ color:'var(--text-secondary)', fontSize:12 }}>{t.entryDate}<br/><span style={{ color:'var(--text-muted)' }}>{t.entryTime}</span></td>
@@ -952,7 +983,8 @@ export function ImportPage() {
                         {t.pnl>=0?'+':''}{t.pnl.toFixed(2)}
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
