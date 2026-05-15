@@ -230,12 +230,22 @@ export function TradesProvider({ children }) {
       'notes','setup','emotion','tags','mistakes','rMultiple','status','timeframe',
     ];
 
-    // Build a price-based lookup key — round to nearest integer to handle OCR decimal truncation
-    // e.g. OCR reads 4688.01 but Excel has 4688.014 — both round to 4688
+    // Primary price key: entry + exit + size + date (rounded for OCR tolerance)
+    // For withdrawals: match by pnl amount + date
     const priceKey = t => {
-      if (!t.entryPrice || !t.exitPrice) return null;
       const dateStr = t.exitDate || t.entryDate || '';
-      return `${Math.round(parseFloat(t.entryPrice))}-${Math.round(parseFloat(t.exitPrice))}-${parseFloat(t.size||0).toFixed(2)}-${dateStr}`;
+      // Withdrawal/deposit: match by amount + date
+      if (t.isWithdrawal || t.isDeposit) {
+        return `wd-${parseFloat(t.pnl||0).toFixed(2)}-${dateStr}`;
+      }
+      if (!t.entryPrice) return null;
+      const ep = Math.round(parseFloat(t.entryPrice));
+      const sz = parseFloat(t.size||0).toFixed(2);
+      if (t.exitPrice) {
+        const xp = Math.round(parseFloat(t.exitPrice));
+        return `${ep}-${xp}-${sz}-${dateStr}`;
+      }
+      return `ep-${ep}-${sz}-${dateStr}`;
     };
 
     setTrades(prev => {
