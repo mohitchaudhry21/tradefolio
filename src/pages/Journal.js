@@ -320,19 +320,29 @@ export default function Journal() {
         <div style={{ borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', overflow: 'hidden',
           ...(isMobile && mobilePanel === 'detail' ? { display: 'none' } : {}),
         }}>
-          {/* Tabs — fixed inside left panel */}
-          <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', padding: '0 14px', flexShrink: 0 }}>
-            {[['all','All',trades.length],['journaled','Journaled',journaledIds.length],['pending','Pending',trades.length-journaledIds.length]].map(([k,l,c]) => (
+        {/* Tabs — fixed inside left panel */}
+          <div style={{ display:'flex', gap:6, padding:'10px 12px', borderBottom:'1px solid var(--border)', flexShrink:0, background:'var(--bg-card)' }}>
+            {[
+              ['all',      'All',      trades.length,                      'var(--text-muted)',    'var(--bg-hover)'],
+              ['journaled','Journaled',journaledIds.length,                 '#4ade80',              'rgba(74,222,128,.12)'],
+              ['pending',  'Pending',  trades.length-journaledIds.length,  '#f59e0b',              'rgba(245,158,11,.12)'],
+            ].map(([k,l,c,ac,abg]) => (
               <button key={k} onClick={() => setTab(k)} style={{
-                padding: '10px 12px', fontSize: 12, fontWeight: 600,
-                color: tab === k ? 'var(--text-primary)' : 'var(--text-secondary)',
-                background: 'none', border: 'none',
-                borderBottom: `2px solid ${tab === k ? 'var(--blue)' : 'transparent'}`,
-                cursor: 'pointer', fontFamily: 'var(--font)', marginBottom: -1,
-                display: 'flex', gap: 5, alignItems: 'center',
+                flex: 1, padding:'7px 8px', borderRadius: 8, fontSize:12, fontWeight:700,
+                cursor:'pointer', fontFamily:'var(--font)',
+                border: tab===k ? `1px solid ${ac}` : '1px solid transparent',
+                background: tab===k ? abg : 'var(--bg-hover)',
+                color: tab===k ? ac : 'var(--text-muted)',
+                display:'flex', gap:6, alignItems:'center', justifyContent:'center',
+                transition:'all .12s',
               }}>
                 {l}
-                <span style={{ background: tab === k ? 'var(--blue)' : 'var(--bg-hover)', color: tab === k ? '#fff' : 'var(--text-muted)', borderRadius: 10, padding: '0 6px', fontSize: 10 }}>{c}</span>
+                <span style={{
+                  background: tab===k ? ac : 'rgba(255,255,255,.08)',
+                  color: tab===k ? (k==='all'?'var(--text-primary)':'#000') : 'var(--text-muted)',
+                  borderRadius:10, padding:'1px 7px', fontSize:11, fontWeight:800,
+                  minWidth:24, textAlign:'center',
+                }}>{c}</span>
               </button>
             ))}
           </div>
