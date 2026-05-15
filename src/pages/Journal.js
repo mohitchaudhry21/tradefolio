@@ -23,7 +23,7 @@ const DEFAULT_CHECKLIST = [
 ];
 
 export default function Journal() {
-  const { trades, updateJournal, getJournal, updateTrade, settings, accounts, activeAccount } = useTrades();
+  const { trades, updateJournal, getJournal, updateTrade, deleteTrade, settings, accounts, activeAccount } = useTrades();
   const { showToast } = useToast();
 
   // Merge global custom checklist from settings into defaults, filter removed
@@ -503,6 +503,20 @@ export default function Journal() {
                     transition: 'all .15s',
                   }}>
                   {selTrade.status === 'Breakeven' ? '↩ Undo BE' : '— Mark BE'}
+                </button>
+                <button
+                  title="Delete this trade permanently"
+                  onClick={() => {
+                    if (!window.confirm(`Delete ${selTrade.symbol} trade on ${selTrade.entryDate}? This cannot be undone.`)) return;
+                    deleteTrade(selTrade.id);
+                    setSelected(null);
+                    showToast({ title: 'Trade deleted', message: `${selTrade.symbol} removed` });
+                  }}
+                  style={{
+                    padding: '3px 10px', borderRadius: 5, fontSize: 11, fontWeight: 700, cursor: 'pointer', border: '1px solid',
+                    background: 'var(--red-dim)', color: 'var(--red)', borderColor: 'rgba(239,68,68,.3)',
+                  }}>
+                  🗑 Delete
                 </button>
               </div>
             </div>
