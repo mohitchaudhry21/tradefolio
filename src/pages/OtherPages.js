@@ -163,6 +163,338 @@ function parseCSV(text) {
 }
 
 
+// ─────────────────────────────────────────────────────────────────────────────
+// MT5 SCREENSHOT IMPORT  —  Tesseract.js OCR (free, local) + optional Gemini
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Parse MT5 raw OCR text into trade objects
+function parseMT5Text(rawText, brokerOffsetHrs, userOffsetHrs) {
+  const diffMins = Math.round((parseFloat(userOffsetHrs) - parseFloat(brokerOffsetHrs)) * 60);
+  const pad = n => String(n).padStart(2,'0');
+
+  const convertDt = (dtStr) => {
+    if (!dtStr) return { date:'', time:'' };
+    const m = dtStr.match(/(\d{4})[.\-](\d{2})[.\-](\d{2})\s+(\d{2}):(\d{2})(?::(\d{2}))?/);
+    if (!m) return { date:'', time:'' };
+    const [,yr,mo,dy,hr,mn] = m;
+    const base = new Date(Date.UTC(+yr,+mo-1,+dy,+hr,+mn,0));
+    const adj  = new Date(base.getTime() + diffMins*60000);
+    return {
+      date: `${adj.getUTCFullYear()}-${pad(adj.getUTCMonth()+1)}-${pad(adj.getUTCDate())}`,
+      time: `${pad(adj.getUTCHours())}:${pad(adj.getUTCMinutes())}`,
+    };
+  };
+
+  const lines = rawText.split('\n').map(l=>l.trim()).filter(Boolean);
+  const trades = [];
+
+  // Pattern 1 — Detail popup view
+  // Looks for: symbol/direction/size, price→price, dates, charges
+  const detailBlock = rawText.match(
+    /([A-Z]+[!.]?[A-Z]*)\s+(buy|sell)\s+([\d.]+)[\s\S]*?([\d.]+)\s*[→\->]+\s*([\d.]+)[\s\S]*?(\d{4}[.\-]\d{2}[.\-]\d{2}\s+\d{2}:\d{2}(?::\d{2})?)\s*[→\->\s]+\s*(\d{4}[.\-]\d{2}[.\-]\d{2}\s+\d{2}:\d{2}(?::\d{2})?)/gi
+  );
+
+  // Pattern 2 — List view rows
+  // Each trade is: "XAUUSD!R buy 0.3\n4536.913 → 4543.4595\n2026.05.05 09:37:13\n196.40"
+  const listPattern = /([A-Z]+[!.]?R?)\s+(buy|sell)\s+([\d.]+)\s*[\r\n]+([\d.]+)\s*[→>\-]+\s*([\d.]+)\s*[\r\n]+(\d{4}[.\-]\d{2}[.\-]\d{2}\s+\d{2}:\d{2}(?::\d{2})?)\s*[\r\n]+([-+]?[\d.]+)/gi;
+  let match;
+  while ((match = listPattern.exec(rawText)) !== null) {
+    const [,sym,dir,size,ep,xp,dt,pnlStr] = match;
+    const dt1 = convertDt(dt);
+    const pnl = parseFloat(pnlStr)||0;
+    trades.push({
+      symbol:     sym.replace(/[!.]R$/i,'').replace(/[!.]$/,'').toUpperCase(),
+      side:       dir.toLowerCase()==='sell'?'Short':'Long',
+      size:       parseFloat(size)||0,
+      entryPrice: parseFloat(ep)||0,
+      exitPrice:  parseFloat(xp)||0,
+      entryDate:  dt1.date,
+      entryTime:  dt1.time,
+      exitDate:   dt1.date,
+      exitTime:   '',
+      pnl:        pnl,
+      fees:       0,
+      status:     pnl>0.5?'Win':pnl<-0.5?'Loss':'Breakeven',
+      source:     'MT5 Screenshot',
+    });
+  }
+
+  // Pattern 3 — Detail popup (entry→exit times both visible)
+  const detailPattern = /([A-Z]+[!.]?R?)\s+(buy|sell)\s+([\d.]+)[\s\S]*?([\d]+\.[\d]+)\s*[→>\-]+\s*([\d]+\.[\d]+)[\s\S]*?(\d{4}[.\-]\d{2}[.\-]\d{2}\s+\d{2}:\d{2}(?::\d{2})?)\s*[→>\-]+\s*(\d{4}[.\-]\d{2}[.\-]\d{2}\s+\d{2}:\d{2}(?::\d{2})?)[\s\S]*?(?:Charges?|Commission)[\s\S]*?([+-]?[\d.]+)[\s\S]*?([-+]?[\d.]+)\s*$/i;
+  const dm = rawText.match(detailPattern);
+  if (dm && trades.length === 0) {
+    const [,sym,dir,size,ep,xp,dt1s,dt2s,charges,pnlStr] = dm;
+    const dt1 = convertDt(dt1s); const dt2 = convertDt(dt2s);
+    const pnl = parseFloat(pnlStr)||0;
+    trades.push({
+      symbol:     sym.replace(/[!.]R$/i,'').toUpperCase(),
+      side:       dir.toLowerCase()==='sell'?'Short':'Long',
+      size:       parseFloat(size)||0,
+      entryPrice: parseFloat(ep)||0,
+      exitPrice:  parseFloat(xp)||0,
+      entryDate:  dt1.date, entryTime: dt1.time,
+      exitDate:   dt2.date, exitTime:  dt2.time,
+      pnl:        pnl,
+      fees:       Math.abs(parseFloat(charges)||0),
+      status:     pnl>0.5?'Win':pnl<-0.5?'Loss':'Breakeven',
+      source:     'MT5 Screenshot',
+    });
+  }
+
+  return trades;
+}
+
+function ScreenshotImportTab({ onPreview, onError, error, reset }) {
+  const { settings } = useTrades();
+  const [image,      setImage]      = useState(null);   // { file, dataUrl, base64, type }
+  const [loading,    setLoading]    = useState(false);
+  const [status,     setStatus]     = useState('');
+  const [rawText,    setRawText]    = useState('');
+  const [showRaw,    setShowRaw]    = useState(false);
+  const [geminiKey,  setGeminiKey]  = useState(() => localStorage.getItem('tf_gemini_key')||'');
+  const [showKey,    setShowKey]    = useState(false);
+  const [brokerTz,   setBrokerTz]   = useState('+3');   // MT5 server offset (EET = UTC+3)
+  const [userTz,     setUserTz]     = useState('+5.5'); // user's local offset
+  const fileRef = useRef();
+
+  const TZ_OPTS = ['-12','-11','-10','-9','-8','-7','-6','-5','-4','-3','-2','-1',
+                   '0','+1','+2','+3','+3.5','+4','+4.5','+5','+5.5','+5.75','+6',
+                   '+6.5','+7','+8','+9','+9.5','+10','+11','+12'];
+
+  const saveGeminiKey = (k) => { setGeminiKey(k); localStorage.setItem('tf_gemini_key',k); };
+
+  const handleFile = (file) => {
+    if (!file) return;
+    reset();
+    setStatus('');
+    setRawText('');
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const dataUrl = ev.target.result;
+      const base64  = dataUrl.split(',')[1];
+      setImage({ file, dataUrl, base64, type: file.type||'image/jpeg' });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // ── OCR via Tesseract.js (free, local) ────────────────────────────────────
+  const runOCR = async () => {
+    setLoading(true); setStatus('Loading OCR engine...'); onError(''); onPreview(null);
+    try {
+      // Dynamically load Tesseract from CDN
+      if (!window.Tesseract) {
+        await new Promise((res,rej) => {
+          const s = document.createElement('script');
+          s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+          s.onload = res; s.onerror = rej;
+          document.head.appendChild(s);
+        });
+      }
+      setStatus('Reading text from screenshot...');
+      const result = await window.Tesseract.recognize(image.dataUrl, 'eng', {
+        logger: m => { if (m.status==='recognizing text') setStatus(`OCR: ${Math.round(m.progress*100)}%`); }
+      });
+      const raw = result.data.text;
+      setRawText(raw);
+      const trades = parseMT5Text(raw, brokerTz, userTz);
+      if (!trades.length) {
+        onError('No trades found. The OCR text is shown below — if it looks garbled try Gemini instead.');
+        setShowRaw(true);
+        setStatus('');
+      } else {
+        setStatus(`✅ Found ${trades.length} trade${trades.length!==1?'s':''} via OCR`);
+        onPreview(trades);
+      }
+    } catch(e) {
+      onError('OCR error: ' + e.message);
+      setStatus('');
+    } finally { setLoading(false); }
+  };
+
+  // ── Gemini Vision API (free tier, optional) ────────────────────────────────
+  const runGemini = async () => {
+    if (!geminiKey) { onError('Enter your free Gemini API key first'); return; }
+    setLoading(true); setStatus('Sending to Gemini AI...'); onError(''); onPreview(null);
+    try {
+      const prompt = `Extract ALL completed trades from this MT5 screenshot. Return ONLY a JSON array, no other text:
+[{"symbol":"XAUUSD","side":"Long","size":0.3,"entryPrice":4536.913,"exitPrice":4543.4595,"entryDatetime":"2026.05.05 09:37:13","exitDatetime":"2026.05.05 09:37:13","pnl":196.40,"fees":0}]
+Rules: side=Long for buy, Short for sell. symbol without !R suffix. fees=abs(Charges). pnl=gross profit shown. If only one datetime visible use it for both entry and exit.`;
+
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
+        { method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ contents:[{ parts:[
+            { inline_data:{ mime_type: image.type, data: image.base64 } },
+            { text: prompt }
+          ]}]})
+        }
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message||'Gemini error');
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text||'';
+      const clean = text.replace(/```json|```/g,'').trim();
+      const raw = JSON.parse(clean);
+
+      // Convert times and normalise
+      const pad = n => String(n).padStart(2,'0');
+      const diffMins = Math.round((parseFloat(userTz)-parseFloat(brokerTz))*60);
+      const conv = dtStr => {
+        const m = dtStr?.match(/(\d{4})[.\-](\d{2})[.\-](\d{2})\s+(\d{2}):(\d{2})/);
+        if (!m) return { date:'', time:'' };
+        const [,yr,mo,dy,hr,mn]=m;
+        const adj = new Date(Date.UTC(+yr,+mo-1,+dy,+hr,+mn)+diffMins*60000);
+        return { date:`${adj.getUTCFullYear()}-${pad(adj.getUTCMonth()+1)}-${pad(adj.getUTCDate())}`, time:`${pad(adj.getUTCHours())}:${pad(adj.getUTCMinutes())}` };
+      };
+      const trades = raw.map(t => {
+        const e=conv(t.entryDatetime), x=conv(t.exitDatetime||t.entryDatetime);
+        const pnl=parseFloat(t.pnl)||0;
+        return {
+          symbol: (t.symbol||'').replace(/[!.]R$/i,'').toUpperCase(),
+          side:   t.side==='Short'?'Short':'Long',
+          size:   parseFloat(t.size)||0,
+          entryPrice: parseFloat(t.entryPrice)||0,
+          exitPrice:  parseFloat(t.exitPrice)||0,
+          entryDate: e.date, entryTime: e.time,
+          exitDate:  x.date, exitTime:  x.time,
+          pnl, fees: Math.abs(parseFloat(t.fees)||0),
+          status: pnl>0.5?'Win':pnl<-0.5?'Loss':'Breakeven',
+          source: 'MT5 Screenshot',
+        };
+      });
+      if (!trades.length) throw new Error('No trades extracted');
+      setStatus(`✅ Gemini found ${trades.length} trade${trades.length!==1?'s':''}`);
+      onPreview(trades);
+    } catch(e) {
+      onError('Gemini error: ' + e.message);
+      setStatus('');
+    } finally { setLoading(false); }
+  };
+
+  return (
+    <div>
+      {/* Gemini key + Timezone settings */}
+      <div className="card" style={{marginBottom:14}}>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
+
+          {/* Timezone */}
+          <div>
+            <div style={{fontSize:13,fontWeight:700,marginBottom:10}}>🕐 Timezone Conversion</div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+              <div className="form-group" style={{marginBottom:0}}>
+                <label className="form-label">MT5 Server Time (UTC offset)</label>
+                <select className="form-control" value={brokerTz} onChange={e=>setBrokerTz(e.target.value)}>
+                  {TZ_OPTS.map(o=><option key={o} value={o}>UTC{o}</option>)}
+                </select>
+                <div style={{fontSize:10,color:'var(--text-muted)',marginTop:3}}>Usually UTC+2 or UTC+3 for most brokers</div>
+              </div>
+              <div className="form-group" style={{marginBottom:0}}>
+                <label className="form-label">Your Local Time (UTC offset)</label>
+                <select className="form-control" value={userTz} onChange={e=>setUserTz(e.target.value)}>
+                  {TZ_OPTS.map(o=><option key={o} value={o}>UTC{o}</option>)}
+                </select>
+                <div style={{fontSize:10,color:'var(--text-muted)',marginTop:3}}>India = UTC+5.5 · UAE = UTC+4</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Gemini key */}
+          <div>
+            <div style={{fontSize:13,fontWeight:700,marginBottom:4}}>✨ Gemini API Key <span style={{fontSize:11,color:'var(--text-muted)',fontWeight:400}}>(optional — better accuracy)</span></div>
+            <div style={{fontSize:11,color:'var(--text-muted)',marginBottom:8}}>
+              Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer" style={{color:'var(--blue-bright)'}}>aistudio.google.com</a> — no credit card needed. Without it, local OCR is used (free but less accurate).
+            </div>
+            <div style={{position:'relative'}}>
+              <input className="form-control" type={showKey?'text':'password'}
+                placeholder="AIza..." value={geminiKey}
+                onChange={e=>saveGeminiKey(e.target.value)}
+                style={{paddingRight:50}}/>
+              <button type="button" onClick={()=>setShowKey(p=>!p)}
+                style={{position:'absolute',right:8,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',color:'var(--text-muted)',cursor:'pointer',fontSize:11}}>
+                {showKey?'Hide':'Show'}
+              </button>
+            </div>
+            {geminiKey && <div style={{fontSize:10,color:'#4ade80',marginTop:4}}>✓ Gemini key saved</div>}
+          </div>
+        </div>
+      </div>
+
+      {/* Upload area */}
+      <div
+        onDrop={e=>{e.preventDefault();handleFile(e.dataTransfer.files[0]);}}
+        onDragOver={e=>e.preventDefault()}
+        onClick={()=>!image&&fileRef.current?.click()}
+        style={{
+          border:`2px dashed ${image?'var(--blue)':'var(--border)'}`,
+          borderRadius:10, marginBottom:14,
+          padding: image?0:'40px 20px',
+          textAlign:'center', cursor:image?'default':'pointer',
+          background:'var(--bg-hover)', overflow:'hidden',
+        }}>
+        <input ref={fileRef} type="file" accept="image/*" style={{display:'none'}}
+          onChange={e=>handleFile(e.target.files?.[0])}/>
+        {!image ? (
+          <div>
+            <div style={{fontSize:36,marginBottom:8}}>📸</div>
+            <div style={{fontWeight:700,fontSize:14,marginBottom:4}}>Drop MT5 screenshot here or click to upload</div>
+            <div style={{fontSize:12,color:'var(--text-muted)'}}>Upload the Deals panel screenshot from your MT5 app — list view or detail popup both work</div>
+          </div>
+        ) : (
+          <div style={{position:'relative'}}>
+            <img src={image.dataUrl} alt="MT5 screenshot"
+              style={{maxWidth:'100%',maxHeight:380,display:'block',margin:'0 auto'}}/>
+            <button onClick={e=>{e.stopPropagation();setImage(null);reset();setStatus('');setRawText('');}}
+              style={{position:'absolute',top:8,right:8,background:'rgba(0,0,0,.7)',color:'#fff',border:'none',borderRadius:6,padding:'4px 10px',cursor:'pointer',fontSize:12}}>
+              ✕ Remove
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Action buttons */}
+      {image && (
+        <div style={{display:'flex',gap:10,marginBottom:14,flexWrap:'wrap'}}>
+          <button className="btn btn-secondary" onClick={runOCR} disabled={loading}>
+            {loading&&!geminiKey?'⏳ Processing...':'🔍 Read with OCR (free, local)'}
+          </button>
+          <button className="btn btn-primary" onClick={runGemini} disabled={loading||!geminiKey}
+            style={{opacity:geminiKey?1:0.5}} title={geminiKey?'':'Add Gemini key above'}>
+            {loading&&geminiKey?'⏳ Processing...':'✨ Read with Gemini AI (more accurate)'}
+          </button>
+          {!geminiKey && <span style={{fontSize:11,color:'var(--text-muted)',alignSelf:'center'}}>← Add free Gemini key for better accuracy</span>}
+        </div>
+      )}
+
+      {status && <div style={{fontSize:13,color:'var(--blue-bright)',marginBottom:10,fontWeight:600}}>{status}</div>}
+
+      {/* Raw OCR text for debugging */}
+      {showRaw && rawText && (
+        <div style={{marginBottom:14}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+            <span style={{fontSize:12,fontWeight:700,color:'var(--text-secondary)'}}>Raw OCR text (for debugging):</span>
+            <button className="btn btn-ghost btn-sm" onClick={()=>setShowRaw(false)}>Hide</button>
+          </div>
+          <pre style={{background:'var(--bg-card)',border:'1px solid var(--border)',borderRadius:7,padding:'10px 12px',fontSize:11,fontFamily:'monospace',color:'var(--text-secondary)',overflowX:'auto',whiteSpace:'pre-wrap',maxHeight:200,overflow:'auto'}}>{rawText}</pre>
+        </div>
+      )}
+
+      {/* How it works */}
+      <div style={{background:'rgba(59,130,246,.06)',border:'1px solid rgba(59,130,246,.15)',borderRadius:8,padding:'12px 14px',fontSize:12,color:'var(--text-secondary)',lineHeight:1.8}}>
+        <strong style={{color:'var(--blue-bright)'}}>How to get the best results:</strong>
+        <ol style={{margin:'6px 0 0 0',paddingLeft:18}}>
+          <li>In MT5 → tap <strong>Deals</strong> tab to see your closed trade history</li>
+          <li>Take a screenshot showing the trade list clearly</li>
+          <li>For more detail, tap any trade to open the popup, then screenshot that</li>
+          <li>Upload here — multiple screenshots supported (upload one at a time)</li>
+          <li>Set the correct timezone offsets above so times are converted correctly</li>
+        </ol>
+        <div style={{marginTop:8,color:'var(--text-muted)'}}>
+          💡 OCR works offline and is completely free. Gemini (also free) gives more accurate results especially for blurry or small text.
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ImportPage() {
   const { importTrades, trades, accounts, activeAccountId } = useTrades();
   const { showToast } = useToast();
@@ -282,6 +614,7 @@ export function ImportPage() {
         <div className="tabs">
           <button className={`tab-btn${tab==='mt5'?' active':''}`} onClick={()=>{setTab('mt5');reset();}}>📊 MT5 Excel Report</button>
           <button className={`tab-btn${tab==='csv'?' active':''}`} onClick={()=>{setTab('csv');reset();}}>📄 CSV Import</button>
+          <button className={`tab-btn${tab==='screenshot'?' active':''}`} onClick={()=>{setTab('screenshot');reset();}}>📸 Screenshot Import</button>
         </div>
 
         {/* ── MT5 Excel Tab ─────────────────────────────────────────────── */}
@@ -393,6 +726,16 @@ export function ImportPage() {
               {error && <div style={{ marginTop:10, padding:'9px 12px', background:'var(--red-dim)', borderRadius:7, color:'var(--red)', fontSize:13 }}>❌ {error}</div>}
             </div>
           </div>
+        )}
+
+        {/* ── Screenshot Import Tab ─────────────────────────────────────── */}
+        {tab === 'screenshot' && (
+          <ScreenshotImportTab
+            onPreview={setPreview}
+            onError={setError}
+            error={error}
+            reset={reset}
+          />
         )}
 
         {/* ── Preview ───────────────────────────────────────────────────── */}
