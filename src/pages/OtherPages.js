@@ -299,30 +299,45 @@ function parseMT5Text(rawText, brokerOffsetHrs, userOffsetHrs) {
       pnl,        fees: 0,
       status:     pnl > 0.5 ? 'Win' : pnl < -0.5 ? 'Loss' : 'Breakeven',
       source:     'MT5 Screenshot',
-      // Price-based positionId — rounded to handle OCR decimal truncation
+      // Price-based positionId — entry+exit+size+date, rounded for OCR tolerance
       positionId: `ss-${Math.round(parseFloat(ep))}-${Math.round(parseFloat(xp))}-${parseFloat(size).toFixed(2)}-${exitDt.date}`,
     });
     i++;
   }
 
   // ── PRIORITY 3: "Balance" rows = withdrawals ──────────────────────────────
-  for (let i = 0; i < lines.length - 1; i++) {
-    if (lines[i].toLowerCase() === 'balance') {
-      const pnl = parseFloat(lines[i+1]);
-      if (!isNaN(pnl) && pnl < 0) {
-        for (let j = i+1; j < Math.min(i+4, lines.length); j++) {
-          const dtM = lines[j].match(/(\d{4}[.\-]\d{2}[.\-]\d{2}\s+\d{2}:\d{2})/);
-          if (dtM) {
-            const dt = convertDt(dtM[1]);
-            trades.push({
-              symbol:'WITHDRAWAL', side:'Long', size:0, entryPrice:0, exitPrice:0,
-              entryDate:dt.date, entryTime:dt.time, exitDate:dt.date, exitTime:dt.time,
-              pnl, fees:0, status:'Breakeven', isWithdrawal:true, source:'MT5 Screenshot',
-              positionId:`ss-WD-${pnl}-${dt.date}-${dt.time}`,
-            });
-            break;
-          }
-        }
+  // MT5 Deals view shows withdrawals as:
+  // "Balance" / "-180.00" / "OP: 106697" / "2026.05.15 09:39:39"
+  // OR a line containing "Balance" followed by a negative number
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].toLowerCase().trim();
+    // Match "Balance" standalone or "Balance -180.00" on same line
+    const sameLineMatch = lines[i].match(/^[Bb]alance\s+([-\d\s]+\.?\d*)/);
+    const isBalanceLine = line === 'balance' || sameLineMatch;
+    if (!isBalanceLine) continue;
+
+    // Get the amount
+    let pnl = 0;
+    if (sameLineMatch) {
+      pnl = parseFloat(sameLineMatch[1].replace(/\s/g,''));
+    } else if (i+1 < lines.length) {
+      pnl = parseFloat(lines[i+1].replace(/\s/g,''));
+    }
+
+    if (isNaN(pnl) || pnl >= 0) continue; // only process negative (withdrawals)
+
+    // Find the datetime in next few lines
+    for (let j = i+1; j < Math.min(i+5, lines.length); j++) {
+      const dtM = lines[j].match(/(\d{4}[.\-]\d{2}[.\-]\d{2}\s+\d{2}:\d{2}(?::\d{2})?)/);
+      if (dtM) {
+        const dt = convertDt(dtM[1]);
+        trades.push({
+          symbol:'WITHDRAWAL', side:'Long', size:0, entryPrice:0, exitPrice:0,
+          entryDate:dt.date, entryTime:dt.time, exitDate:dt.date, exitTime:dt.time,
+          pnl, fees:0, status:'Breakeven', isWithdrawal:true, source:'MT5 Screenshot',
+          positionId:`wd-${parseFloat(pnl).toFixed(2)}-${dt.date}`,
+        });
+        break;
       }
     }
   }
@@ -674,17 +689,22 @@ export function ImportPage() {
     // Count duplicates before importing
     const existingPosIds  = new Set(trades.map(t=>t.positionId).filter(Boolean));
     const existingPriceKeys = new Set(trades.map(t => {
-      if (!t.entryPrice||!t.exitPrice) return null;
+      if (!t.entryPrice) return null;
       const d = t.exitDate||t.entryDate||'';
-      return `${Math.round(parseFloat(t.entryPrice))}-${Math.round(parseFloat(t.exitPrice))}-${parseFloat(t.size||0).toFixed(2)}-${d}`;
+      const ep = Math.round(parseFloat(t.entryPrice));
+      const sz = parseFloat(t.size||0).toFixed(2);
+      if (t.exitPrice) return `${ep}-${Math.round(parseFloat(t.exitPrice))}-${sz}-${d}`;
+      return `ep-${ep}-${sz}-${d}`;
     }).filter(Boolean));
 
     let duplicates = 0, added = 0;
     preview.forEach(t => {
       const isPosMatch = t.positionId && existingPosIds.has(t.positionId);
       const d = t.exitDate||t.entryDate||'';
-      const pk = t.entryPrice&&t.exitPrice
-        ? `${Math.round(parseFloat(t.entryPrice))}-${Math.round(parseFloat(t.exitPrice))}-${parseFloat(t.size||0).toFixed(2)}-${d}`
+      const ep = Math.round(parseFloat(t.entryPrice));
+      const sz = parseFloat(t.size||0).toFixed(2);
+      const pk = t.entryPrice
+        ? (t.exitPrice ? `${ep}-${Math.round(parseFloat(t.exitPrice))}-${sz}-${d}` : `ep-${ep}-${sz}-${d}`)
         : null;
       const isPriceMatch = pk && existingPriceKeys.has(pk);
       if (isPosMatch || isPriceMatch) duplicates++; else added++;
