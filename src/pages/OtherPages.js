@@ -299,8 +299,8 @@ function parseMT5Text(rawText, brokerOffsetHrs, userOffsetHrs) {
       pnl,        fees: 0,
       status:     pnl > 0.5 ? 'Win' : pnl < -0.5 ? 'Loss' : 'Breakeven',
       source:     'MT5 Screenshot',
-      // Price-based positionId for dedup — no symbol since OCR often misreads it
-      positionId: `ss-${parseFloat(ep).toFixed(3)}-${parseFloat(xp).toFixed(3)}-${parseFloat(size).toFixed(2)}-${exitDt.date}`,
+      // Price-based positionId — rounded to handle OCR decimal truncation
+      positionId: `ss-${Math.round(parseFloat(ep))}-${Math.round(parseFloat(xp))}-${parseFloat(size).toFixed(2)}-${exitDt.date}`,
     });
     i++;
   }
@@ -676,7 +676,7 @@ export function ImportPage() {
     const existingPriceKeys = new Set(trades.map(t => {
       if (!t.entryPrice||!t.exitPrice) return null;
       const d = t.exitDate||t.entryDate||'';
-      return `${parseFloat(t.entryPrice).toFixed(3)}-${parseFloat(t.exitPrice).toFixed(3)}-${parseFloat(t.size||0).toFixed(2)}-${d}`;
+      return `${Math.round(parseFloat(t.entryPrice))}-${Math.round(parseFloat(t.exitPrice))}-${parseFloat(t.size||0).toFixed(2)}-${d}`;
     }).filter(Boolean));
 
     let duplicates = 0, added = 0;
@@ -684,7 +684,7 @@ export function ImportPage() {
       const isPosMatch = t.positionId && existingPosIds.has(t.positionId);
       const d = t.exitDate||t.entryDate||'';
       const pk = t.entryPrice&&t.exitPrice
-        ? `${parseFloat(t.entryPrice).toFixed(3)}-${parseFloat(t.exitPrice).toFixed(3)}-${parseFloat(t.size||0).toFixed(2)}-${d}`
+        ? `${Math.round(parseFloat(t.entryPrice))}-${Math.round(parseFloat(t.exitPrice))}-${parseFloat(t.size||0).toFixed(2)}-${d}`
         : null;
       const isPriceMatch = pk && existingPriceKeys.has(pk);
       if (isPosMatch || isPriceMatch) duplicates++; else added++;
