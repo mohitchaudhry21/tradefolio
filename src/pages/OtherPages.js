@@ -269,8 +269,14 @@ function parseMT5Text(rawText, brokerOffsetHrs, userOffsetHrs) {
     const [, sym, dir, size, pnlStr] = mA;
     const [, ep, xp, dtStr] = mB;
     const exitDt   = convertDt(dtStr);
-    const pnl      = parseFloat(pnlStr) || 0;
     const cleanSym = sym.replace(/[!.]R$/i,'').replace(/[!.]$/,'').toUpperCase();
+
+    // Use price direction to determine sign — OCR often loses the minus sign
+    const epF = parseFloat(ep), xpF = parseFloat(xp);
+    const isLong  = dir.toLowerCase() === 'buy';
+    const priceWin = isLong ? (xpF > epF) : (xpF < epF);
+    const pnlAbs  = Math.abs(parseFloat(pnlStr) || 0);
+    const pnl     = priceWin ? pnlAbs : -pnlAbs;
 
     trades.push({
       symbol:     cleanSym,
@@ -579,7 +585,7 @@ Rules: side=Long for buy, Short for sell. symbol without !R suffix. fees=abs(Cha
 }
 
 export function ImportPage() {
-  const { importTrades, trades, accounts, activeAccountId } = useTrades();
+  const { importTrades, trades, accounts, activeAccountId, undoLastImport } = useTrades();
   const { showToast } = useToast();
   const [tab,       setTab]       = useState('mt5');
   const [preview,   setPreview]   = useState(null);
@@ -588,6 +594,7 @@ export function ImportPage() {
   const [success,   setSuccess]   = useState('');
   const [loading,   setLoading]   = useState(false);
   const [csvText,   setCsvText]   = useState('');
+  const [importStats, setImportStats] = useState(null); // { added, duplicates }
   // Pre-populate from sidebar's active account
   const [importAccountId, setImportAccountId] = useState(activeAccountId || '');
   const fileInputRef = useRef();
@@ -597,7 +604,7 @@ export function ImportPage() {
     setImportAccountId(activeAccountId || '');
   }, [activeAccountId]);
 
-  const reset = () => { setPreview(null); setError(''); setWarnings([]); setSuccess(''); };
+  const reset = () => { setPreview(null); setError(''); setWarnings([]); setSuccess(''); setImportStats(null); };
 
   // ── Handle MT5 Excel file ──────────────────────────────────────────────
   const handleExcelFile = async (file) => {
@@ -637,9 +644,33 @@ export function ImportPage() {
     if (!preview?.length) return;
     const chosenAccountId = importAccountId || null;
     const chosenAccount = accounts.find(a => a.id === chosenAccountId);
+
+    // Count duplicates before importing
+    const existingPosIds  = new Set(trades.map(t=>t.positionId).filter(Boolean));
+    const existingPriceKeys = new Set(trades.map(t => {
+      if (!t.symbol||!t.entryPrice||!t.exitPrice) return null;
+      const d = t.exitDate||t.entryDate||'';
+      return `${t.symbol}-${parseFloat(t.entryPrice).toFixed(3)}-${parseFloat(t.exitPrice).toFixed(3)}-${parseFloat(t.size||0).toFixed(2)}-${d}`;
+    }).filter(Boolean));
+
+    let duplicates = 0, added = 0;
+    preview.forEach(t => {
+      const isPosMatch = t.positionId && existingPosIds.has(t.positionId);
+      const d = t.exitDate||t.entryDate||'';
+      const pk = t.symbol&&t.entryPrice&&t.exitPrice
+        ? `${t.symbol}-${parseFloat(t.entryPrice).toFixed(3)}-${parseFloat(t.exitPrice).toFixed(3)}-${parseFloat(t.size||0).toFixed(2)}-${d}`
+        : null;
+      const isPriceMatch = pk && existingPriceKeys.has(pk);
+      if (isPosMatch || isPriceMatch) duplicates++; else added++;
+    });
+
     importTrades(preview, null, chosenAccountId);
     const accLabel = chosenAccount ? `→ ${chosenAccount.name}` : '(no account assigned)';
-    showToast({ title: `${preview.length} trades imported`, message: `Updated & added · ${accLabel}` });
+    setImportStats({ added, duplicates, total: preview.length });
+    showToast({
+      title: `Import complete · ${accLabel}`,
+      message: `${added} new trade${added!==1?'s':''} added${duplicates>0?` · ${duplicates} duplicate${duplicates!==1?'s':''} merged`:''}`,
+    });
     setPreview(null);
     setCsvText('');
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -883,6 +914,24 @@ export function ImportPage() {
                 ... and {preview.length - 20} more trades
               </div>
             )}
+          </div>
+        )}
+
+        {/* Import stats + Undo */}
+        {importStats && (
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'12px 16px', background:'rgba(74,222,128,.08)', border:'1px solid rgba(74,222,128,.2)', borderRadius:8, marginTop:12 }}>
+            <div style={{ fontSize:13, fontWeight:600 }}>
+              <span style={{ color:'#4ade80' }}>✓ {importStats.added} new trade{importStats.added!==1?'s':''} added</span>
+              {importStats.duplicates > 0 && (
+                <span style={{ color:'var(--text-muted)', marginLeft:12 }}>· {importStats.duplicates} duplicate{importStats.duplicates!==1?'s':''} merged (not duplicated)</span>
+              )}
+            </div>
+            <button className="btn btn-secondary btn-sm" onClick={() => {
+              if (!window.confirm('Undo the last import? This will revert all trades added in that import.')) return;
+              const ok = undoLastImport();
+              if (ok) { setImportStats(null); showToast({ title: '↩ Import undone', message: 'Trades reverted to before the import' }); }
+              else showToast({ title: 'Nothing to undo', message: 'No import history found' });
+            }}>↩ Undo Import</button>
           </div>
         )}
       </div>
