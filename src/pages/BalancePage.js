@@ -176,6 +176,34 @@ export default function BalancePage() {
   const aboveThreshNow   = parseFloat((currentTradeBal - currentThreshold).toFixed(2));
   const withdrawalRows   = rows.filter(r=>r.isW);
 
+  // Pagination
+  const WEEK_PAGE_SIZE = 10;
+  const TXN_PAGE_SIZE  = 20;
+  const [weekPage, setWeekPage] = useState(1);
+  const [txnPage,  setTxnPage]  = useState(1);
+
+  const reversedWeeks = useMemo(() => [...weeklyData].reverse(), [weeklyData]);
+  const reversedRows  = useMemo(() => [...rows].reverse(), [rows]);
+
+  const weekTotalPages = Math.ceil(reversedWeeks.length / WEEK_PAGE_SIZE);
+  const txnTotalPages  = Math.ceil((reversedRows.length + 1) / TXN_PAGE_SIZE); // +1 for opening row
+
+  const pagedWeeks = reversedWeeks.slice((weekPage-1)*WEEK_PAGE_SIZE, weekPage*WEEK_PAGE_SIZE);
+  const pagedRows  = reversedRows.slice((txnPage-1)*TXN_PAGE_SIZE, txnPage*TXN_PAGE_SIZE);
+
+  const Pagination = ({ page, total, onChange }) => {
+    if (total <= 1) return null;
+    return (
+      <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:6,paddingTop:12,borderTop:'1px solid var(--border)'}}>
+        <button onClick={()=>onChange(1)}      disabled={page===1}     className="btn btn-ghost btn-sm" style={{padding:'3px 8px'}}>«</button>
+        <button onClick={()=>onChange(page-1)} disabled={page===1}     className="btn btn-ghost btn-sm" style={{padding:'3px 8px'}}>‹</button>
+        <span style={{fontSize:12,color:'var(--text-secondary)',minWidth:90,textAlign:'center'}}>Page {page} of {total}</span>
+        <button onClick={()=>onChange(page+1)} disabled={page===total} className="btn btn-ghost btn-sm" style={{padding:'3px 8px'}}>›</button>
+        <button onClick={()=>onChange(total)}  disabled={page===total} className="btn btn-ghost btn-sm" style={{padding:'3px 8px'}}>»</button>
+      </div>
+    );
+  };
+
   return (
     <div>
       <div className="page-header">
@@ -372,7 +400,7 @@ export default function BalancePage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {[...weeklyData].reverse().map(w=>(
+                  {pagedWeeks.map(w=>(
                     <tr key={w.weekKey} style={{borderBottom:'1px solid var(--border)',background:w.splitDue?'rgba(245,158,11,.04)':''}}
                       onMouseEnter={e=>e.currentTarget.style.background=w.splitDue?'rgba(245,158,11,.08)':'var(--bg-hover)'}
                       onMouseLeave={e=>e.currentTarget.style.background=w.splitDue?'rgba(245,158,11,.04)':''}>
@@ -423,6 +451,7 @@ export default function BalancePage() {
                   ))}
                 </tbody>
               </table>
+              <Pagination page={weekPage} total={weekTotalPages} onChange={p=>{setWeekPage(p);}} />
             </div>
           )}
         </div>
@@ -446,14 +475,16 @@ export default function BalancePage() {
                   </tr>
                 </thead>
                 <tbody>
-                  <tr style={{borderBottom:'1px solid var(--border)',background:'rgba(59,130,246,.04)'}}>
-                    <td style={{padding:'10px 12px',color:'var(--text-muted)',fontSize:12}}>{fromDate?fmtDate(fromDate):'Start'}</td>
-                    <td style={{padding:'10px 12px'}}><span style={{background:'rgba(59,130,246,.15)',color:'var(--blue-bright)',borderRadius:5,padding:'2px 8px',fontSize:11,fontWeight:700}}>Opening</span></td>
-                    <td style={{padding:'10px 12px',color:'var(--text-secondary)'}}>Starting balance</td>
-                    <td colSpan={2} style={{padding:'10px 12px',textAlign:'right',color:'var(--text-muted)'}}>—</td>
-                    <td style={{padding:'10px 12px',textAlign:'right',fontWeight:800,color:'var(--blue-bright)'}}>{fmtA(startingBalance)}</td>
-                  </tr>
-                  {[...rows].reverse().map((r,i)=>{
+                  {txnPage===1 && (
+                    <tr style={{borderBottom:'1px solid var(--border)',background:'rgba(59,130,246,.04)'}}>
+                      <td style={{padding:'10px 12px',color:'var(--text-muted)',fontSize:12}}>{fromDate?fmtDate(fromDate):'Start'}</td>
+                      <td style={{padding:'10px 12px'}}><span style={{background:'rgba(59,130,246,.15)',color:'var(--blue-bright)',borderRadius:5,padding:'2px 8px',fontSize:11,fontWeight:700}}>Opening</span></td>
+                      <td style={{padding:'10px 12px',color:'var(--text-secondary)'}}>Starting balance</td>
+                      <td colSpan={2} style={{padding:'10px 12px',textAlign:'right',color:'var(--text-muted)'}}>—</td>
+                      <td style={{padding:'10px 12px',textAlign:'right',fontWeight:800,color:'var(--blue-bright)'}}>{fmtA(startingBalance)}</td>
+                    </tr>
+                  )}
+                  {pagedRows.map((r,i)=>{
                     const {t,net,comm,balance,isW,isD,isTrade}=r;
                     const isProfit=isW&&t.isProfitWithdrawal;
                     const isCapital=isW&&!t.isProfitWithdrawal;
@@ -476,6 +507,7 @@ export default function BalancePage() {
                   })}
                 </tbody>
               </table>
+              <Pagination page={txnPage} total={txnTotalPages} onChange={p=>{setTxnPage(p);}} />
             </div>
           )}
         </div>
