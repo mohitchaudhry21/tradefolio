@@ -230,11 +230,11 @@ export function TradesProvider({ children }) {
       'notes','setup','emotion','tags','mistakes','rMultiple','status','timeframe',
     ];
 
-    // Build a price-based lookup key for fuzzy matching
+    // Build a price-based lookup key for fuzzy matching (no symbol — OCR often misreads it)
     const priceKey = t => {
-      if (!t.symbol || !t.entryPrice || !t.exitPrice) return null;
+      if (!t.entryPrice || !t.exitPrice) return null;
       const dateStr = t.exitDate || t.entryDate || '';
-      return `${t.symbol}-${parseFloat(t.entryPrice).toFixed(3)}-${parseFloat(t.exitPrice).toFixed(3)}-${parseFloat(t.size||0).toFixed(2)}-${dateStr}`;
+      return `${parseFloat(t.entryPrice).toFixed(3)}-${parseFloat(t.exitPrice).toFixed(3)}-${parseFloat(t.size||0).toFixed(2)}-${dateStr}`;
     };
 
     setTrades(prev => {
