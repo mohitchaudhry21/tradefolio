@@ -43,21 +43,31 @@ const ChartTip = ({ active, payload, label }) => {
 
 export default function BalancePage() {
   const { trades, stats, settings, accounts, activeAccountId, updateTrade } = useTrades();
-  const [fromDate,   setFromDate]   = useState(stats.statsStartDate || '');
   const [splitRatio, setSplitRatio] = useState(50);
 
   const activeAccount = accounts.find(a => a.id === activeAccountId) || null;
   const startingBalance = parseFloat(activeAccount?.accountSize || settings.accountSize || 10000);
 
-  const accountTrades = useMemo(() => {
+  // Auto-sync date range from active account (or global settings)
+  const effectiveFromDate = activeAccount?.statsStartDate || stats.statsStartDate || '';
+  const effectiveToDate   = activeAccount?.statsEndDate   || stats.statsEndDate   || '';
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo,   setCustomTo]   = useState('');
+  const [useCustom,  setUseCustom]  = useState(false);
+
+  const fromDate = useCustom ? customFrom : effectiveFromDate;
+  const toDate   = useCustom ? customTo   : effectiveToDate;
     if (!activeAccountId) return trades;
     return trades.filter(t => t.accountId === activeAccountId || (!t.accountId && t.source === activeAccount?.name));
   }, [trades, activeAccountId, activeAccount]);
 
   const events = useMemo(() => accountTrades
-    .filter(t => { const d=t.entryDate||t.exitDate||''; return d && (!fromDate || d >= fromDate); })
+    .filter(t => {
+      const d=t.entryDate||t.exitDate||'';
+      return d && (!fromDate || d >= fromDate) && (!toDate || d <= toDate);
+    })
     .sort((a,b) => { const da=a.entryDate||'',db=b.entryDate||''; return da!==db?da.localeCompare(db):(a.entryTime||'').localeCompare(b.entryTime||''); }),
-  [accountTrades, fromDate]);
+  [accountTrades, fromDate, toDate]);
 
   const tradeComm = t => (stats.brokeragePerLot||0) > 0 ? (stats.brokeragePerLot)*(t.size||0) : (t.fees||0);
 
@@ -72,8 +82,7 @@ export default function BalancePage() {
     });
   }, [events, startingBalance]);
 
-  // Weekly data — threshold ONLY moves on isProfitWithdrawal withdrawals
-  // Threshold comparison uses trade-only balance (ignores deposits/capital withdrawals)
+  // Weekly data — threshold updates based on ACTUAL logged profit withdrawals
   const weeklyData = useMemo(() => {
     if (!rows.length) return [];
     const byWeek = {};
@@ -90,38 +99,53 @@ export default function BalancePage() {
     const weeks=Object.keys(byWeek).sort();
     weeks.forEach((wk,i)=>{ byWeek[wk].startBalance=i===0?startingBalance:byWeek[weeks[i-1]].endBalance; byWeek[wk].tradePnl=parseFloat(byWeek[wk].tradePnl.toFixed(2)); });
 
-    let threshold = startingBalance;
-    // tradeOnlyBal: tracks cumulative trade P&L only — deposits/withdrawals don't affect it
-    // This is the value compared to threshold, so re-depositing money doesn't fake a split trigger
+    let threshold    = startingBalance;
     let tradeOnlyBal = startingBalance;
 
     return weeks.map(wk=>{
-      const w=byWeek[wk];
+      const w = byWeek[wk];
 
-      // Only trade P&L moves tradeOnlyBal — deposits and withdrawals are ignored
+      // Only trade P&L moves tradeOnlyBal — deposits/withdrawals ignored
       tradeOnlyBal = parseFloat((tradeOnlyBal + w.tradePnl).toFixed(2));
 
-      const aboveThresh  = parseFloat((tradeOnlyBal - threshold).toFixed(2));
-      const splitDue     = aboveThresh > 0;
-      const withdrawAmt  = splitDue ? parseFloat((aboveThresh*(splitRatio/100)).toFixed(2)) : 0;
-      const keepAmt      = splitDue ? parseFloat((aboveThresh-withdrawAmt).toFixed(2))       : 0;
-      const newThreshold = splitDue ? parseFloat((threshold+keepAmt).toFixed(2))              : threshold;
+      const aboveThresh       = parseFloat((tradeOnlyBal - threshold).toFixed(2));
+      const splitDue          = aboveThresh > 0;
 
-      // When a split is triggered, reset tradeOnlyBal to the new threshold
-      // (the withdrawn portion is "taken out" of the trade balance too)
-      if (splitDue) tradeOnlyBal = newThreshold;
+      // Suggested split (formula-based)
+      const suggestedWithdraw = splitDue ? parseFloat((aboveThresh*(splitRatio/100)).toFixed(2)) : 0;
+      const suggestedKeep     = splitDue ? parseFloat((aboveThresh-suggestedWithdraw).toFixed(2)) : 0;
 
-      const result={
+      // Actual: use the real logged profit withdrawal amount if it exists
+      const actualWithdraw    = w.profitWithdrawals;
+      const didWithdraw       = splitDue && actualWithdraw > 0;
+
+      // New threshold — only updates when they actually logged a profit withdrawal
+      let newThreshold = threshold;
+      let newTradeOnlyBal = tradeOnlyBal;
+      if (didWithdraw) {
+        // Keep = above-threshold amount minus what they actually took out
+        const actualKeep = parseFloat((aboveThresh - actualWithdraw).toFixed(2));
+        newThreshold    = parseFloat((threshold + Math.max(0, actualKeep)).toFixed(2));
+        newTradeOnlyBal = newThreshold; // reset tradeOnlyBal to new threshold
+      }
+
+      const result = {
         weekKey:wk, label:fmtWeek(wk),
         tradePnl:w.tradePnl, deposits:w.deposits,
-        withdrawals:w.withdrawals, profitWithdrawals:w.profitWithdrawals,
+        withdrawals:w.withdrawals, profitWithdrawals:actualWithdraw,
         startBal:w.startBalance, endBal:w.endBalance,
         tradeOnlyBal, threshold, aboveThresh, splitDue,
-        withdrawAmt, keepAmt, newThreshold,
+        // Suggested vs actual
+        suggestedWithdraw, suggestedKeep,
+        actualWithdraw, didWithdraw,
+        newThreshold,
         tradeCount:w.rows.filter(r=>r.isTrade).length,
       };
 
-      if (splitDue) threshold = newThreshold;
+      if (didWithdraw) {
+        threshold    = newThreshold;
+        tradeOnlyBal = newTradeOnlyBal;
+      }
       return result;
     });
   }, [rows, startingBalance, splitRatio]);
@@ -156,9 +180,27 @@ export default function BalancePage() {
           <div className="page-sub">Running balance, profit split rule, and transaction history</div>
         </div>
         <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
-          <label style={{fontSize:12,color:'var(--text-secondary)',fontWeight:600}}>From:</label>
-          <input type="date" className="form-control" style={{width:155,padding:'6px 10px',fontSize:12}} value={fromDate} onChange={e=>setFromDate(e.target.value)}/>
-          {fromDate&&<button className="btn btn-ghost btn-sm" onClick={()=>setFromDate('')}>✕</button>}
+          {/* Show active date range */}
+          {!useCustom && (effectiveFromDate || effectiveToDate) && (
+            <div style={{display:'flex',alignItems:'center',gap:6,padding:'5px 10px',background:'rgba(59,130,246,.1)',border:'1px solid rgba(59,130,246,.25)',borderRadius:7,fontSize:12}}>
+              <span style={{color:'var(--blue-bright)',fontWeight:600}}>📅 {effectiveFromDate||'all time'} → {effectiveToDate||'today'}</span>
+              <span style={{color:'var(--text-muted)',fontSize:10}}>from {activeAccount?activeAccount.name:'Settings'}</span>
+            </div>
+          )}
+          {!useCustom && !effectiveFromDate && !effectiveToDate && (
+            <span style={{fontSize:12,color:'var(--text-muted)'}}>Showing all dates — set a date range in Settings or per account</span>
+          )}
+          {/* Custom override */}
+          {useCustom && (
+            <div style={{display:'flex',alignItems:'center',gap:8}}>
+              <input type="date" className="form-control" style={{width:145,padding:'5px 8px',fontSize:12}} value={customFrom} onChange={e=>setCustomFrom(e.target.value)} placeholder="From"/>
+              <span style={{color:'var(--text-muted)',fontSize:12}}>→</span>
+              <input type="date" className="form-control" style={{width:145,padding:'5px 8px',fontSize:12}} value={customTo}   onChange={e=>setCustomTo(e.target.value)}   placeholder="To"/>
+            </div>
+          )}
+          <button className="btn btn-secondary btn-sm" onClick={()=>{ setUseCustom(p=>!p); setCustomFrom(''); setCustomTo(''); }}>
+            {useCustom ? '↩ Use Account Range' : '✏️ Custom Range'}
+          </button>
         </div>
       </div>
 
@@ -307,7 +349,7 @@ export default function BalancePage() {
               <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
                 <thead>
                   <tr style={{borderBottom:'2px solid var(--border)'}}>
-                    {['Week','Trades','P&L','Trade Balance','Actual Balance','Threshold','Above?','Take Out','Keep','New Threshold'].map(h=>(
+                    {['Week','Trades','P&L','Trade Bal','Threshold','Above?','Suggested','Actual Taken','Status','New Threshold'].map(h=>(
                       <th key={h} style={{padding:'8px 10px',textAlign:h==='Week'||h==='Trades'?'left':'right',fontSize:10,fontWeight:700,color:'var(--text-muted)',letterSpacing:'.4px',whiteSpace:'nowrap'}}>{h}</th>
                     ))}
                   </tr>
@@ -321,20 +363,45 @@ export default function BalancePage() {
                       <td style={{padding:'10px 10px',color:'var(--text-muted)',fontSize:12}}>{w.tradeCount}</td>
                       <td style={{padding:'10px 10px',textAlign:'right',fontWeight:700,color:clr(w.tradePnl),whiteSpace:'nowrap'}}>{w.tradePnl>=0?'+':''}{fmtA(w.tradePnl)}</td>
                       {/* Trade-only balance — used for threshold comparison */}
-                      <td style={{padding:'10px 10px',textAlign:'right',fontWeight:800,color:w.tradeOnlyBal>=w.threshold?'#4ade80':'var(--text-primary)',whiteSpace:'nowrap'}}>
-                        <span title="Trade P&L only — deposits/withdrawals excluded">{fmtA(w.tradeOnlyBal)}</span>
-                      </td>
-                      {/* Actual balance including deposits and withdrawals */}
-                      <td style={{padding:'10px 10px',textAlign:'right',fontWeight:600,color:'var(--text-secondary)',whiteSpace:'nowrap',fontSize:12}}>{fmtA(w.endBal)}</td>
+                      <td style={{padding:'10px 10px',textAlign:'right',fontWeight:800,color:w.tradeOnlyBal>=w.threshold?'#4ade80':'var(--text-primary)',whiteSpace:'nowrap'}}>{fmtA(w.tradeOnlyBal)}</td>
                       <td style={{padding:'10px 10px',textAlign:'right',color:'#f59e0b',fontWeight:700,whiteSpace:'nowrap'}}>{fmtA(w.threshold)}</td>
+                      {/* Above threshold? */}
                       <td style={{padding:'10px 10px',textAlign:'right'}}>
                         {w.splitDue
                           ? <span style={{background:'rgba(245,158,11,.15)',color:'#f59e0b',borderRadius:5,padding:'2px 8px',fontSize:11,fontWeight:700,whiteSpace:'nowrap'}}>+{fmtA(w.aboveThresh)} ⚡</span>
                           : <span style={{color:'var(--text-muted)',fontSize:11}}>Below</span>}
                       </td>
-                      <td style={{padding:'10px 10px',textAlign:'right',fontWeight:700,color:w.splitDue?'#f87171':'var(--text-muted)',whiteSpace:'nowrap'}}>{w.splitDue?'-'+fmtA(w.withdrawAmt):'—'}</td>
-                      <td style={{padding:'10px 10px',textAlign:'right',fontWeight:700,color:w.splitDue?'#4ade80':'var(--text-muted)',whiteSpace:'nowrap'}}>{w.splitDue?'+'+fmtA(w.keepAmt):'—'}</td>
-                      <td style={{padding:'10px 10px',textAlign:'right',fontWeight:800,color:'#f59e0b',whiteSpace:'nowrap'}}>{fmtA(w.newThreshold)}</td>
+                      {/* Suggested withdrawal (formula) */}
+                      <td style={{padding:'10px 10px',textAlign:'right',whiteSpace:'nowrap'}}>
+                        {w.splitDue
+                          ? <span style={{color:'var(--text-muted)',fontSize:12}}>-{fmtA(w.suggestedWithdraw)}</span>
+                          : <span style={{color:'var(--text-muted)',fontSize:11}}>—</span>}
+                      </td>
+                      {/* Actual withdrawal logged */}
+                      <td style={{padding:'10px 10px',textAlign:'right',fontWeight:700,whiteSpace:'nowrap'}}>
+                        {w.didWithdraw
+                          ? <span style={{color:'#f87171'}}>-{fmtA(w.actualWithdraw)}</span>
+                          : w.splitDue
+                            ? <span style={{color:'rgba(245,158,11,.6)',fontSize:11}}>⏳ Not logged</span>
+                            : <span style={{color:'var(--text-muted)',fontSize:11}}>—</span>}
+                      </td>
+                      {/* Status */}
+                      <td style={{padding:'10px 10px',textAlign:'right'}}>
+                        {!w.splitDue
+                          ? <span style={{fontSize:10,color:'var(--text-muted)'}}>—</span>
+                          : w.didWithdraw
+                            ? <span style={{background:'rgba(74,222,128,.12)',color:'#4ade80',borderRadius:5,padding:'2px 8px',fontSize:10,fontWeight:700}}>✓ Done</span>
+                            : <span style={{background:'rgba(245,158,11,.12)',color:'#f59e0b',borderRadius:5,padding:'2px 8px',fontSize:10,fontWeight:700}}>⏳ Pending</span>}
+                      </td>
+                      {/* New threshold — only changes when withdrawal is logged */}
+                      <td style={{padding:'10px 10px',textAlign:'right',fontWeight:800,color:w.didWithdraw?'#f59e0b':'var(--text-muted)',whiteSpace:'nowrap'}}>
+                        {w.didWithdraw ? fmtA(w.newThreshold) : fmtA(w.threshold)}
+                      </td>
+                      <td style={{padding:'10px 10px',textAlign:'right'}}>
+                        {w.splitDue
+                          ? <span style={{background:'rgba(245,158,11,.15)',color:'#f59e0b',borderRadius:5,padding:'2px 8px',fontSize:11,fontWeight:700,whiteSpace:'nowrap'}}>+{fmtA(w.aboveThresh)} ⚡</span>
+                          : <span style={{color:'var(--text-muted)',fontSize:11}}>Below</span>}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -347,7 +414,7 @@ export default function BalancePage() {
         <div className="card">
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
             <div className="card-title" style={{margin:0}}>Transaction History</div>
-            <div style={{fontSize:12,color:'var(--text-muted)'}}>{rows.length} entries{fromDate?' from '+fmtDate(fromDate):''}</div>
+            <div style={{fontSize:12,color:'var(--text-muted)'}}>{rows.length} entries{fromDate?' from '+fmtDate(fromDate):''}{toDate?' to '+fmtDate(toDate):''}</div>
           </div>
           {rows.length===0 ? (
             <div style={{textAlign:'center',padding:'40px',color:'var(--text-muted)'}}><div style={{fontSize:32,marginBottom:10}}>📊</div><div>No transactions found</div></div>
