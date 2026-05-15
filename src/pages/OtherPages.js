@@ -185,75 +185,256 @@ function parseMT5Text(rawText, brokerOffsetHrs, userOffsetHrs) {
     };
   };
 
-  const trades = [];
-  const lines = rawText.split('\n').map(l=>l.trim()).filter(Boolean);
+  const priceKey = (sym, ep, xp, size) =>
+    `${sym}-${parseFloat(ep).toFixed(3)}-${parseFloat(xp).toFixed(3)}-${parseFloat(size||0).toFixed(2)}`;
 
-  // MT5 Deals list format — two lines per trade:
-  // Line A: "XAUUSD!R buy 0.3 196.40"  (symbol direction size pnl)
-  // Line B: "4536.913 → 4543.4595 2026.05.05 09:37:13"  (entry → exit datetime)
+  const trades = [];
+
+  // ── PRIORITY 1: Detail popup format ───────────────────────────────────────
+  // Detected by presence of "#XXXXXXX" position ID
+  // Format:
+  //   XAUUSD!R buy 0.5    #6761420
+  //   4688.014 → 4694.5706    327.83
+  //   2026.05.14 09:15:00 → 2026.05.14 10:36:55
+  //   S/L: 4702.323    Charges: -5.00
+  //   T/P: 4718.000
+
+  const posIdMatch = rawText.match(/#(\d{5,12})/);
+  if (posIdMatch) {
+    const positionId = posIdMatch[1];
+    const symMatch   = rawText.match(/([A-Z]+[!.]?[A-Z0-9]*)\s+(buy|sell)\s+([\d.]+)/i);
+    const priceMatch = rawText.match(/([\d]+\.[\d]+)\s*[→\->—–]+\s*([\d]+\.[\d]+)/);
+    const pnlMatch   = rawText.match(/\b([-\d]+\.[\d]{2})\b(?=\s*\n|\s*$|\s*\d{4}[.\-])/m)
+                    || rawText.match(/([-\d]+\.[\d]{2})/);
+    // Two datetimes: entry → exit
+    const allDts     = [...rawText.matchAll(/(\d{4}[.\-]\d{2}[.\-]\d{2}\s+\d{2}:\d{2}(?::\d{2})?)/g)].map(m=>m[1]);
+    const slMatch    = rawText.match(/S\/L[:\s]+([\d.]+)/i);
+    const tpMatch    = rawText.match(/T\/P[:\s]+([\d.]+)/i);
+    const chargeMatch= rawText.match(/[Cc]harges?[:\s]+([-\d.]+)/);
+    const swapMatch  = rawText.match(/[Ss]wap[:\s]+([-\d.]+)/);
+
+    if (symMatch && priceMatch) {
+      const [,sym,dir,size] = symMatch;
+      const [,ep,xp] = priceMatch;
+      const cleanSym = sym.replace(/[!.]R$/i,'').replace(/[!.]$/,'').toUpperCase();
+
+      // First datetime = entry, second = exit (if both present)
+      const dt1 = allDts.length >= 1 ? convertDt(allDts[0]) : { date:'', time:'' };
+      const dt2 = allDts.length >= 2 ? convertDt(allDts[1]) : dt1;
+
+      // Find the main P&L number (the largest standalone decimal in the text, near the prices)
+      let pnl = 0;
+      const allNumbers = [...rawText.matchAll(/([-]?\d+\.\d{2})\b/g)].map(m=>parseFloat(m[1]));
+      // P&L is usually the biggest absolute value that isn't a price (prices are > 1000 for gold)
+      const candidates = allNumbers.filter(n => Math.abs(n) < 10000 && Math.abs(n) > 0.1 && !(Math.abs(n) > 1000));
+      if (candidates.length) pnl = candidates.reduce((a,b) => Math.abs(b) > Math.abs(a) ? b : a, 0);
+
+      const fees = chargeMatch ? Math.abs(parseFloat(chargeMatch[1])||0) : 0;
+      const swap = swapMatch && swapMatch[1] !== '-' ? parseFloat(swapMatch[1])||0 : 0;
+
+      trades.push({
+        symbol:     cleanSym,
+        side:       dir.toLowerCase() === 'sell' ? 'Short' : 'Long',
+        size:       parseFloat(size)||0,
+        entryPrice: parseFloat(ep)||0,
+        exitPrice:  parseFloat(xp)||0,
+        entryDate:  dt1.date,  entryTime: dt1.time,
+        exitDate:   dt2.date,  exitTime:  dt2.time,
+        pnl:        parseFloat(pnl.toFixed(2)),
+        fees:       parseFloat((fees + Math.abs(swap)).toFixed(2)),
+        stopLoss:   slMatch ? parseFloat(slMatch[1]) : null,
+        takeProfit: tpMatch ? parseFloat(tpMatch[1]) : null,
+        status:     pnl > 0.5 ? 'Win' : pnl < -0.5 ? 'Loss' : 'Breakeven',
+        source:     'MT5 Screenshot',
+        positionId, // real MT5 position ID — matches Excel imports perfectly
+      });
+    }
+    return trades; // detail popup = single trade, stop here
+  }
+
+  // ── PRIORITY 2: List view — multiple trades ────────────────────────────────
+  // Line A: "XAUUSD!R buy 0.3  -5.47"
+  // Line B: "4710.628 → 4710.4455  2026.05.13 09:27:29"
+  const lines = rawText.split('\n').map(l=>l.trim()).filter(Boolean);
   for (let i = 0; i < lines.length - 1; i++) {
     const lineA = lines[i];
-    const lineB = lines[i+1];
+    const lineB = lines[i + 1];
 
-    // Match Line A: symbol + buy/sell + size + pnl
     const mA = lineA.match(/([A-Z]+[!.]?[A-Z0-9]*)\s+(buy|sell)\s+([\d.]+)\s+([-\d.]+)/i);
     if (!mA) continue;
 
-    // Match Line B: entry price, separator, exit price, date
     const mB = lineB.match(/([\d.]+)\s*[→\->—–]+\s*([\d.]+)\s+(\d{4}[.\-]\d{2}[.\-]\d{2}\s+\d{2}:\d{2}(?::\d{2})?)/);
     if (!mB) continue;
 
     const [, sym, dir, size, pnlStr] = mA;
     const [, ep, xp, dtStr] = mB;
-    const dt = convertDt(dtStr);
-    const pnl = parseFloat(pnlStr) || 0;
+    const exitDt   = convertDt(dtStr);
+    const pnl      = parseFloat(pnlStr) || 0;
+    const cleanSym = sym.replace(/[!.]R$/i,'').replace(/[!.]$/,'').toUpperCase();
 
     trades.push({
-      symbol:     sym.replace(/[!.]R$/i,'').replace(/[!.]$/,'').toUpperCase(),
+      symbol:     cleanSym,
       side:       dir.toLowerCase() === 'sell' ? 'Short' : 'Long',
       size:       parseFloat(size) || 0,
       entryPrice: parseFloat(ep) || 0,
       exitPrice:  parseFloat(xp) || 0,
-      entryDate:  dt.date,
-      entryTime:  dt.time,
-      exitDate:   dt.date,
-      exitTime:   dt.time,
+      entryDate:  exitDt.date,   entryTime: '',
+      exitDate:   exitDt.date,   exitTime:  exitDt.time,
+      pnl,        fees: 0,
+      status:     pnl > 0.5 ? 'Win' : pnl < -0.5 ? 'Loss' : 'Breakeven',
+      source:     'MT5 Screenshot',
+      // Price-based positionId for dedup against Excel
+      positionId: `ss-${cleanSym}-${parseFloat(ep).toFixed(3)}-${parseFloat(xp).toFixed(3)}-${parseFloat(size).toFixed(2)}-${exitDt.date}`,
+    });
+    i++;
+  }
+
+  // ── PRIORITY 3: "Balance" rows = withdrawals ──────────────────────────────
+  for (let i = 0; i < lines.length - 1; i++) {
+    if (lines[i].toLowerCase() === 'balance') {
+      const pnl = parseFloat(lines[i+1]);
+      if (!isNaN(pnl) && pnl < 0) {
+        for (let j = i+1; j < Math.min(i+4, lines.length); j++) {
+          const dtM = lines[j].match(/(\d{4}[.\-]\d{2}[.\-]\d{2}\s+\d{2}:\d{2})/);
+          if (dtM) {
+            const dt = convertDt(dtM[1]);
+            trades.push({
+              symbol:'WITHDRAWAL', side:'Long', size:0, entryPrice:0, exitPrice:0,
+              entryDate:dt.date, entryTime:dt.time, exitDate:dt.date, exitTime:dt.time,
+              pnl, fees:0, status:'Breakeven', isWithdrawal:true, source:'MT5 Screenshot',
+              positionId:`ss-WD-${pnl}-${dt.date}-${dt.time}`,
+            });
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  return trades;
+}
+  const diffMins = Math.round((parseFloat(userOffsetHrs) - parseFloat(brokerOffsetHrs)) * 60);
+  const pad = n => String(n).padStart(2,'0');
+
+  const convertDt = (dtStr) => {
+    if (!dtStr) return { date:'', time:'' };
+    const m = dtStr.match(/(\d{4})[.\-](\d{2})[.\-](\d{2})\s+(\d{2}):(\d{2})(?::(\d{2}))?/);
+    if (!m) return { date:'', time:'' };
+    const [,yr,mo,dy,hr,mn] = m;
+    const base = new Date(Date.UTC(+yr,+mo-1,+dy,+hr,+mn,0));
+    const adj  = new Date(base.getTime() + diffMins*60000);
+    return {
+      date: `${adj.getUTCFullYear()}-${pad(adj.getUTCMonth()+1)}-${pad(adj.getUTCDate())}`,
+      time: `${pad(adj.getUTCHours())}:${pad(adj.getUTCMinutes())}`,
+    };
+  };
+
+  // Generate deterministic positionId for dedup — same trade always gets same ID
+  const makePositionId = (sym, ep, xp, size, date) =>
+    `ss-${sym}-${parseFloat(ep).toFixed(3)}-${parseFloat(xp).toFixed(3)}-${parseFloat(size).toFixed(2)}-${date}`;
+
+  const trades = [];
+  const lines = rawText.split('\n').map(l=>l.trim()).filter(Boolean);
+
+  // MT5 Deals list format — two lines per trade:
+  // Line A: "XAUUSD!R buy 0.3  -5.47"   (symbol direction size pnl)
+  // Line B: "4710.628 → 4710.4455  2026.05.13 09:27:29"  (entry→exit  CLOSE-datetime)
+  // Note: the datetime shown is the EXIT/CLOSE time in MT5 Deals view
+  for (let i = 0; i < lines.length - 1; i++) {
+    const lineA = lines[i];
+    const lineB = lines[i + 1];
+
+    // Match Line A: symbol + buy/sell + size + pnl
+    const mA = lineA.match(/([A-Z]+[!.]?[A-Z0-9]*)\s+(buy|sell)\s+([\d.]+)\s+([-\d.]+)/i);
+    if (!mA) continue;
+
+    // Match Line B: entry price → exit price  datetime
+    const mB = lineB.match(/([\d.]+)\s*[→\->—–]+\s*([\d.]+)\s+(\d{4}[.\-]\d{2}[.\-]\d{2}\s+\d{2}:\d{2}(?::\d{2})?)/);
+    if (!mB) continue;
+
+    const [, sym, dir, size, pnlStr] = mA;
+    const [, ep, xp, dtStr] = mB;
+    // The datetime in Deals view is the CLOSE time
+    const exitDt = convertDt(dtStr);
+    const pnl = parseFloat(pnlStr) || 0;
+    const cleanSym = sym.replace(/[!.]R$/i,'').replace(/[!.]$/,'').toUpperCase();
+
+    trades.push({
+      symbol:     cleanSym,
+      side:       dir.toLowerCase() === 'sell' ? 'Short' : 'Long',
+      size:       parseFloat(size) || 0,
+      entryPrice: parseFloat(ep) || 0,
+      exitPrice:  parseFloat(xp) || 0,
+      entryDate:  exitDt.date,   // use exit date as entry date (MT5 doesn't show separate entry time in list view)
+      entryTime:  '',
+      exitDate:   exitDt.date,
+      exitTime:   exitDt.time,   // the datetime shown IS the close time
       pnl,
       fees:       0,
       status:     pnl > 0.5 ? 'Win' : pnl < -0.5 ? 'Loss' : 'Breakeven',
       source:     'MT5 Screenshot',
+      // Deterministic positionId so reimporting same screenshot doesn't duplicate
+      positionId: makePositionId(cleanSym, ep, xp, size, exitDt.date),
     });
 
     i++; // skip Line B since we consumed it
   }
 
-  // Also try MT5 detail popup format (single trade with full detail)
-  // "4726.577 → 4736.075" ... "2026.05.07 12:04:59 → 2026.05.07 14:56:17" ... "Charges: -3.00" ... "284.94"
+  // Also detect "Balance" rows = withdrawals (e.g. "Balance\n-180.00\nOP: 106697\n2026.05.15 09:39:39")
+  for (let i = 0; i < lines.length - 1; i++) {
+    if (lines[i].trim().toLowerCase() === 'balance') {
+      const pnlStr = lines[i+1];
+      const pnl = parseFloat(pnlStr);
+      if (!isNaN(pnl) && pnl < 0) {
+        // Find the datetime in next few lines
+        for (let j = i+1; j < Math.min(i+4, lines.length); j++) {
+          const dtMatch = lines[j].match(/(\d{4}[.\-]\d{2}[.\-]\d{2}\s+\d{2}:\d{2}(?::\d{2})?)/);
+          if (dtMatch) {
+            const dt = convertDt(dtMatch[1]);
+            trades.push({
+              symbol: 'WITHDRAWAL', side: 'Long', size: 0,
+              entryPrice: 0, exitPrice: 0,
+              entryDate: dt.date, entryTime: dt.time,
+              exitDate: dt.date, exitTime: dt.time,
+              pnl: pnl, fees: 0,
+              status: 'Breakeven',
+              isWithdrawal: true,
+              source: 'MT5 Screenshot',
+              positionId: makePositionId('WD', pnl, 0, 0, dt.date),
+            });
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  // Detail popup format (single trade with both entry+exit times)
   if (trades.length === 0) {
-    const symMatch   = rawText.match(/([A-Z]+[!.]?[A-Z0-9]*)\s+(buy|sell)\s+([\d.]+)/i);
-    const priceMatch = rawText.match(/([\d.]+)\s*[→\->—–]+\s*([\d.]+)/);
-    const dt1Match   = rawText.match(/(\d{4}[.\-]\d{2}[.\-]\d{2}\s+\d{2}:\d{2}(?::\d{2})?)\s*[→\->—–]+\s*(\d{4}[.\-]\d{2}[.\-]\d{2}\s+\d{2}:\d{2}(?::\d{2})?)/);
-    const chargeMatch= rawText.match(/[Cc]harges?[:\s]+([-\d.]+)/);
-    const pnlMatch   = rawText.match(/([-\d.]+)\s*$/m);
+    const symMatch    = rawText.match(/([A-Z]+[!.]?[A-Z0-9]*)\s+(buy|sell)\s+([\d.]+)/i);
+    const priceMatch  = rawText.match(/([\d.]+)\s*[→\->—–]+\s*([\d.]+)/);
+    const dt1Match    = rawText.match(/(\d{4}[.\-]\d{2}[.\-]\d{2}\s+\d{2}:\d{2}(?::\d{2})?)\s*[→\->—–]+\s*(\d{4}[.\-]\d{2}[.\-]\d{2}\s+\d{2}:\d{2}(?::\d{2})?)/);
+    const chargeMatch = rawText.match(/[Cc]harges?[:\s]+([-\d.]+)/);
+    const pnlLine     = rawText.match(/([-\d.]+)\s*$/m);
 
     if (symMatch && priceMatch) {
       const [,sym,dir,size] = symMatch;
       const [,ep,xp] = priceMatch;
-      const dt1 = dt1Match ? convertDt(dt1Match[1]) : {date:'',time:''};
+      const dt1 = dt1Match ? convertDt(dt1Match[1]) : { date:'', time:'' };
       const dt2 = dt1Match ? convertDt(dt1Match[2]) : dt1;
       const fees = chargeMatch ? Math.abs(parseFloat(chargeMatch[1])||0) : 0;
-      const pnl  = pnlMatch   ? parseFloat(pnlMatch[1])||0 : 0;
+      const pnl  = pnlLine ? parseFloat(pnlLine[1])||0 : 0;
+      const cleanSym = sym.replace(/[!.]R$/i,'').toUpperCase();
       trades.push({
-        symbol:     sym.replace(/[!.]R$/i,'').toUpperCase(),
-        side:       dir.toLowerCase()==='sell'?'Short':'Long',
-        size:       parseFloat(size)||0,
-        entryPrice: parseFloat(ep)||0,
-        exitPrice:  parseFloat(xp)||0,
-        entryDate:  dt1.date, entryTime: dt1.time,
-        exitDate:   dt2.date, exitTime:  dt2.time,
+        symbol: cleanSym, side: dir.toLowerCase()==='sell'?'Short':'Long',
+        size: parseFloat(size)||0,
+        entryPrice: parseFloat(ep)||0, exitPrice: parseFloat(xp)||0,
+        entryDate: dt1.date, entryTime: dt1.time,
+        exitDate: dt2.date,  exitTime: dt2.time,
         pnl, fees,
-        status:     pnl>0.5?'Win':pnl<-0.5?'Loss':'Breakeven',
-        source:     'MT5 Screenshot',
+        status: pnl>0.5?'Win':pnl<-0.5?'Loss':'Breakeven',
+        source: 'MT5 Screenshot',
+        positionId: makePositionId(cleanSym, ep, xp, size, dt2.date),
       });
     }
   }
@@ -496,17 +677,30 @@ Rules: side=Long for buy, Short for sell. symbol without !R suffix. fees=abs(Cha
 
       {/* How it works */}
       <div style={{background:'rgba(59,130,246,.06)',border:'1px solid rgba(59,130,246,.15)',borderRadius:8,padding:'12px 14px',fontSize:12,color:'var(--text-secondary)',lineHeight:1.8}}>
-        <strong style={{color:'var(--blue-bright)'}}>How to get the best results:</strong>
-        <ol style={{margin:'6px 0 0 0',paddingLeft:18}}>
-          <li>In MT5 → tap <strong>Deals</strong> tab to see your closed trade history</li>
-          <li>Take a screenshot showing the trade list clearly</li>
-          <li>For more detail, tap any trade to open the popup, then screenshot that</li>
-          <li>Upload here — multiple screenshots supported (upload one at a time)</li>
-          <li>Set the correct timezone offsets above so times are converted correctly</li>
-        </ol>
-        <div style={{marginTop:8,color:'var(--text-muted)'}}>
-          💡 OCR works offline and is completely free. Gemini (also free) gives more accurate results especially for blurry or small text.
+        <strong style={{color:'var(--blue-bright)'}}>Two ways to import:</strong>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginTop:8}}>
+          <div style={{background:'rgba(74,222,128,.06)',border:'1px solid rgba(74,222,128,.2)',borderRadius:7,padding:'10px 12px'}}>
+            <div style={{fontWeight:700,color:'#4ade80',marginBottom:4}}>✅ Best — Detail Popup (one trade at a time)</div>
+            <ol style={{margin:0,paddingLeft:16,lineHeight:2}}>
+              <li>Open MT5 → <strong>Deals</strong> tab</li>
+              <li>Tap any trade to open its detail popup</li>
+              <li>Screenshot just that popup</li>
+              <li>Upload here → gets real position ID, both entry & exit times, S/L, T/P, charges</li>
+              <li>Repeat for each trade</li>
+            </ol>
+            <div style={{marginTop:6,fontSize:11,color:'#4ade80'}}>✓ Real position ID = never duplicates with Excel imports</div>
+          </div>
+          <div style={{background:'rgba(255,255,255,.03)',border:'1px solid rgba(255,255,255,.08)',borderRadius:7,padding:'10px 12px'}}>
+            <div style={{fontWeight:700,color:'var(--text-secondary)',marginBottom:4}}>📋 Quick — List View (multiple trades)</div>
+            <ol style={{margin:0,paddingLeft:16,lineHeight:2}}>
+              <li>Open MT5 → <strong>Deals</strong> tab</li>
+              <li>Screenshot the trade list</li>
+              <li>Upload here → extracts all visible trades at once</li>
+            </ol>
+            <div style={{marginTop:6,fontSize:11,color:'var(--text-muted)'}}>Only gets exit time, no S/L or T/P. Uses price-based dedup.</div>
+          </div>
         </div>
+        <div style={{marginTop:8,color:'var(--text-muted)'}}>💡 Set the correct timezone offsets above so times convert correctly to your local time.</div>
       </div>
     </div>
   );
