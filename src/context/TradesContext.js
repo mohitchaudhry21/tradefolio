@@ -230,51 +230,45 @@ export function TradesProvider({ children }) {
       'notes','setup','emotion','tags','mistakes','rMultiple','status','timeframe',
     ];
 
-    // Primary price key: entry + exit + size + date (rounded for OCR tolerance)
-    // For withdrawals: match by pnl amount + date
+    // Price key with date
     const priceKey = t => {
       const dateStr = t.exitDate || t.entryDate || '';
-      // Withdrawal/deposit: match by amount + date
-      if (t.isWithdrawal || t.isDeposit) {
-        return `wd-${parseFloat(t.pnl||0).toFixed(2)}-${dateStr}`;
-      }
+      if (t.isWithdrawal || t.isDeposit) return `wd-${parseFloat(t.pnl||0).toFixed(2)}-${dateStr}`;
       if (!t.entryPrice) return null;
       const ep = Math.round(parseFloat(t.entryPrice));
       const sz = parseFloat(t.size||0).toFixed(2);
-      if (t.exitPrice) {
-        const xp = Math.round(parseFloat(t.exitPrice));
-        return `${ep}-${xp}-${sz}-${dateStr}`;
-      }
+      if (t.exitPrice) return `${ep}-${Math.round(parseFloat(t.exitPrice))}-${sz}-${dateStr}`;
       return `ep-${ep}-${sz}-${dateStr}`;
     };
 
-    setTrades(prev => {
-      // Build price key map for existing trades
-      const priceKeyMap = {};
-      prev.forEach(t => {
-        const k = priceKey(t);
-        if (k) priceKeyMap[k] = t.id;
-      });
+    // Price key WITHOUT date — fallback for when OCR date differs from Excel date
+    const priceKeyNoDate = t => {
+      if (t.isWithdrawal || t.isDeposit || !t.entryPrice) return null;
+      const ep = Math.round(parseFloat(t.entryPrice));
+      const sz = parseFloat(t.size||0).toFixed(2);
+      if (t.exitPrice) return `${ep}-${Math.round(parseFloat(t.exitPrice))}-${sz}`;
+      return `ep-${ep}-${sz}`;
+    };
 
-      // Track which existing trade IDs get matched (to avoid double-updating)
+    setTrades(prev => {
       const matchedIds = new Set();
 
       const updated = prev.map(existing => {
-        // 1. Primary match: positionId
+        // 1. positionId match
         let incoming = existing.positionId
           ? normalized.find(t => t.positionId === existing.positionId)
           : null;
 
-        // 2. Fuzzy match: same symbol + entryPrice + exitPrice + size
-        //    Used when screenshot import meets Excel import of same trade
+        // 2. Price key with date
         if (!incoming) {
           const k = priceKey(existing);
-          if (k) {
-            incoming = normalized.find(t => {
-              const tk = priceKey(t);
-              return tk === k && !matchedIds.has(existing.id);
-            });
-          }
+          if (k) incoming = normalized.find(t => priceKey(t) === k && !matchedIds.has(existing.id));
+        }
+
+        // 3. Price key WITHOUT date (fallback — handles OCR date mismatch)
+        if (!incoming) {
+          const k = priceKeyNoDate(existing);
+          if (k) incoming = normalized.find(t => priceKeyNoDate(t) === k && !matchedIds.has(existing.id));
         }
 
         if (!incoming) return existing;
@@ -290,32 +284,23 @@ export function TradesProvider({ children }) {
           if (existing.size != null) preserved.size = existing.size;
         }
 
-        // If the existing trade has a real positionId (from Excel) and incoming is from
-        // screenshot (ss- prefix), keep the real positionId
         const keepPositionId = existing.positionId && !existing.positionId.startsWith('ss-')
           ? existing.positionId
           : incoming.positionId || existing.positionId;
 
-        return {
-          ...existing,
-          ...incoming,
-          ...preserved,
-          id:         existing.id,
-          positionId: keepPositionId,
-          accountId:  incoming.accountId || existing.accountId,
-          source:     incoming.source    || existing.source,
-        };
+        return { ...existing, ...incoming, ...preserved, id: existing.id, positionId: keepPositionId, accountId: incoming.accountId || existing.accountId, source: incoming.source || existing.source };
       });
 
-      const existingPositionIds = new Set(prev.map(t => t.positionId).filter(Boolean));
-      const existingPriceKeys   = new Set(prev.map(t => priceKey(t)).filter(Boolean));
+      const existingPositionIds  = new Set(prev.map(t => t.positionId).filter(Boolean));
+      const existingPriceKeys    = new Set(prev.map(t => priceKey(t)).filter(Boolean));
+      const existingPriceKeysND  = new Set(prev.map(t => priceKeyNoDate(t)).filter(Boolean));
 
       const brandNew = normalized.filter(t => {
-        // Skip if positionId already exists
         if (t.positionId && existingPositionIds.has(t.positionId)) return false;
-        // Skip if same price signature already exists (fuzzy match)
         const k = priceKey(t);
         if (k && existingPriceKeys.has(k)) return false;
+        const knd = priceKeyNoDate(t);
+        if (knd && existingPriceKeysND.has(knd)) return false;
         return true;
       });
       const merged = [...brandNew, ...updated];
