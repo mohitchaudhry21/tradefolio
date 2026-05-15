@@ -201,47 +201,91 @@ export function TradesProvider({ children }) {
     }));
 
     // UNIFIED MERGE STRATEGY:
-    // - positionId match → update metadata (prices, dates, size, symbol, accountId, source)
-    //                      but KEEP all user annotations AND financial data (pnl, fees)
-    //                      so broker sync never changes values that came from Excel
-    // - No positionId match → add as brand new trade
+    // - positionId match → update existing trade
+    // - No positionId match → try fuzzy match by symbol+entryPrice+exitPrice+size
+    //   (allows screenshot imports to match Excel imports of same trade)
+    // - No match at all → add as brand new trade
     // - NEVER delete any trade
     const KEEP_FIELDS = [
       'notes','setup','emotion','tags','mistakes','rMultiple','status','timeframe',
     ];
 
+    // Build a price-based lookup key for fuzzy matching
+    const priceKey = t => {
+      if (!t.symbol || !t.entryPrice || !t.exitPrice) return null;
+      return `${t.symbol}-${parseFloat(t.entryPrice).toFixed(3)}-${parseFloat(t.exitPrice).toFixed(3)}-${parseFloat(t.size||0).toFixed(2)}`;
+    };
+
     setTrades(prev => {
+      // Build price key map for existing trades
+      const priceKeyMap = {};
+      prev.forEach(t => {
+        const k = priceKey(t);
+        if (k) priceKeyMap[k] = t.id;
+      });
+
+      // Track which existing trade IDs get matched (to avoid double-updating)
+      const matchedIds = new Set();
+
       const updated = prev.map(existing => {
-        if (!existing.positionId) return existing;
-        const incoming = normalized.find(t => t.positionId === existing.positionId);
+        // 1. Primary match: positionId
+        let incoming = existing.positionId
+          ? normalized.find(t => t.positionId === existing.positionId)
+          : null;
+
+        // 2. Fuzzy match: same symbol + entryPrice + exitPrice + size
+        //    Used when screenshot import meets Excel import of same trade
+        if (!incoming) {
+          const k = priceKey(existing);
+          if (k) {
+            incoming = normalized.find(t => {
+              const tk = priceKey(t);
+              return tk === k && !matchedIds.has(existing.id);
+            });
+          }
+        }
+
         if (!incoming) return existing;
+        matchedIds.add(existing.id);
 
         const preserved = {};
         KEEP_FIELDS.forEach(k => { if (existing[k] !== undefined) preserved[k] = existing[k]; });
 
-        // Preserve pnl and fees from existing trade whenever it was explicitly imported
-        // (has an accountId or a real source tag). This prevents broker sync from
-        // changing financial values that came from an Excel import.
-        // Only allow broker to set these on genuinely new trades (no existing accountId/source).
         const wasImported = existing.accountId || (existing.source && existing.source !== 'Manual');
         if (wasImported) {
           if (existing.pnl  != null) preserved.pnl  = existing.pnl;
           if (existing.fees != null) preserved.fees = existing.fees;
-          if (existing.size != null) preserved.size = existing.size;  // preserve so brokeragePerLot × size stays stable
+          if (existing.size != null) preserved.size = existing.size;
         }
+
+        // If the existing trade has a real positionId (from Excel) and incoming is from
+        // screenshot (ss- prefix), keep the real positionId
+        const keepPositionId = existing.positionId && !existing.positionId.startsWith('ss-')
+          ? existing.positionId
+          : incoming.positionId || existing.positionId;
 
         return {
           ...existing,
           ...incoming,
           ...preserved,
-          id: existing.id,
-          accountId: incoming.accountId || existing.accountId,
-          source:    incoming.source    || existing.source,
+          id:         existing.id,
+          positionId: keepPositionId,
+          accountId:  incoming.accountId || existing.accountId,
+          source:     incoming.source    || existing.source,
         };
       });
 
-      const existingIds = new Set(prev.map(t => t.positionId).filter(Boolean));
-      const brandNew = normalized.filter(t => !t.positionId || !existingIds.has(t.positionId));
+      const existingPositionIds = new Set(prev.map(t => t.positionId).filter(Boolean));
+      const existingPriceKeys   = new Set(prev.map(t => priceKey(t)).filter(Boolean));
+
+      const brandNew = normalized.filter(t => {
+        // Skip if positionId already exists
+        if (t.positionId && existingPositionIds.has(t.positionId)) return false;
+        // Skip if same price signature already exists (fuzzy match)
+        const k = priceKey(t);
+        if (k && existingPriceKeys.has(k)) return false;
+        return true;
+      });
       const merged = [...brandNew, ...updated];
 
       // Deduplicate by positionId — if any duplicates crept in from previous imports,
