@@ -31,7 +31,7 @@ const defWithdrawal = {
   entryPrice:0, exitPrice:0, size:0, fees:0,
   pnl:'', rMultiple:0, setup:'', timeframe:'',
   notes:'', tags:'', emotion:'', mistakes:[],
-  isWithdrawal: true, isDeposit: false,
+  isWithdrawal: true, isDeposit: false, isProfitWithdrawal: false,
 };
 
 const defDeposit = {
@@ -176,8 +176,29 @@ export default function TradeModal({ trade, onClose, defaultTab }) {
             {/* WITHDRAWAL */}
             {mode === 'withdrawal' && (
               <div>
-                <div style={{ background:'rgba(239,68,68,.08)', border:'1px solid rgba(239,68,68,.2)', borderRadius:8, padding:'12px 14px', marginBottom:16, fontSize:13, color:'var(--text-secondary)' }}>
-                  💸 A withdrawal will be recorded separately and will <strong style={{ color:'var(--text-primary)' }}>not</strong> affect your win rate, trade count, or P&L stats.
+                {/* Withdrawal type toggle */}
+                <div style={{ display:'flex', gap:8, marginBottom:14 }}>
+                  {[
+                    { key: true,  label: '📈 Profit Withdrawal', desc: 'Counts in split rule / threshold', bg: 'rgba(245,158,11,.12)', clr: '#f59e0b', border: 'rgba(245,158,11,.35)' },
+                    { key: false, label: '💼 Capital Withdrawal', desc: 'Does NOT affect threshold', bg: 'rgba(148,163,184,.1)', clr: 'var(--text-secondary)', border: 'rgba(148,163,184,.25)' },
+                  ].map(opt => {
+                    const isActive = !!f.isProfitWithdrawal === opt.key;
+                    return (
+                      <button key={String(opt.key)} type="button"
+                        onClick={() => set('isProfitWithdrawal', opt.key)}
+                        style={{
+                          flex:1, padding:'10px 12px', borderRadius:8, cursor:'pointer', textAlign:'left',
+                          background: isActive ? opt.bg : 'var(--bg-hover)',
+                          border: `2px solid ${isActive ? opt.border : 'var(--border)'}`,
+                        }}>
+                        <div style={{ fontSize:12, fontWeight:700, color: isActive ? opt.clr : 'var(--text-secondary)', marginBottom:2 }}>{opt.label}</div>
+                        <div style={{ fontSize:10, color:'var(--text-muted)' }}>{opt.desc}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div style={{ background:'rgba(239,68,68,.08)', border:'1px solid rgba(239,68,68,.2)', borderRadius:8, padding:'10px 14px', marginBottom:16, fontSize:12, color:'var(--text-secondary)' }}>
+                  💸 Withdrawals are <strong style={{ color:'var(--text-primary)' }}>excluded</strong> from win rate, trade count, and P&L stats.
                 </div>
                 <div className="form-row cols-2" style={{ marginBottom:16 }}>
                   <div className="form-group" style={{ marginBottom:0 }}>
