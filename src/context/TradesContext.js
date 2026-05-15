@@ -170,6 +170,17 @@ export function TradesProvider({ children }) {
   const updateTrade = useCallback((id, u) => setTrades(p => p.map(t => t.id === id ? normalizeTrade({ ...t, ...u }) : t)), []);
   const deleteTrade = useCallback(id => setTrades(p => p.filter(t => t.id !== id)), []);
 
+  const undoLastImport = useCallback(() => {
+    try {
+      const stack = JSON.parse(localStorage.getItem('tf_undo_stack')||'[]');
+      if (!stack.length) return false;
+      const { trades: prevTrades } = stack.shift();
+      setTrades(prevTrades.map(normalizeTrade));
+      localStorage.setItem('tf_undo_stack', JSON.stringify(stack));
+      return true;
+    } catch { return false; }
+  }, []);
+
   // clearTrades: if an account is selected, only removes that account's trades.
   // If "All Accounts" is active, removes every trade (full wipe).
   const clearAllTrades = useCallback((activeAccId, allAccs) => {
@@ -190,6 +201,15 @@ export function TradesProvider({ children }) {
     try { localStorage.removeItem(TRADES_KEY); } catch {}
   }, []);
   const importTrades = useCallback((arr, brokerSource, accountId) => {
+    // Save undo snapshot before importing
+    setTrades(prev => {
+      try {
+        const stack = JSON.parse(localStorage.getItem('tf_undo_stack')||'[]');
+        stack.unshift({ trades: prev, time: Date.now() });
+        localStorage.setItem('tf_undo_stack', JSON.stringify(stack.slice(0,5)));
+      } catch {}
+      return prev; // no actual change yet
+    });
     const matchedAccount = accountId ? accounts.find(a => a.id === accountId) : null;
     const sourceOverride = matchedAccount ? (matchedAccount.source || matchedAccount.name) : null;
 
@@ -380,6 +400,7 @@ export function TradesProvider({ children }) {
       addPlaybook, updatePlaybook, deletePlaybook,
       broker, setBroker,
       cloudStatus, refreshSupabaseClient,
+      undoLastImport,
     }}>
       {children}
     </Ctx.Provider>
