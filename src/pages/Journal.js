@@ -321,27 +321,27 @@ export default function Journal() {
           ...(isMobile && mobilePanel === 'detail' ? { display: 'none' } : {}),
         }}>
         {/* Tabs — fixed inside left panel */}
-          <div style={{ display:'flex', gap:6, padding:'10px 12px', borderBottom:'1px solid var(--border)', flexShrink:0, background:'var(--bg-card)' }}>
+          <div style={{ display:'flex', gap:5, padding:'8px 10px', borderBottom:'1px solid var(--border)', flexShrink:0, background:'var(--bg-card)' }}>
             {[
-              ['all',      'All',      trades.length,                      'var(--text-muted)',    'var(--bg-hover)'],
-              ['journaled','Journaled',journaledIds.length,                 '#4ade80',              'rgba(74,222,128,.12)'],
-              ['pending',  'Pending',  trades.length-journaledIds.length,  '#f59e0b',              'rgba(245,158,11,.12)'],
+              ['all',      'All',      trades.length,                      'var(--text-secondary)', 'rgba(255,255,255,.06)'],
+              ['journaled','Journaled',journaledIds.length,                 '#4ade80',               'rgba(74,222,128,.12)'],
+              ['pending',  'Pending',  trades.length-journaledIds.length,  '#f59e0b',               'rgba(245,158,11,.12)'],
             ].map(([k,l,c,ac,abg]) => (
               <button key={k} onClick={() => setTab(k)} style={{
-                flex: 1, padding:'7px 8px', borderRadius: 8, fontSize:12, fontWeight:700,
-                cursor:'pointer', fontFamily:'var(--font)',
+                flex:1, padding:'6px 4px', borderRadius:7, fontSize:11, fontWeight:700,
+                cursor:'pointer', fontFamily:'var(--font)', whiteSpace:'nowrap',
                 border: tab===k ? `1px solid ${ac}` : '1px solid transparent',
-                background: tab===k ? abg : 'var(--bg-hover)',
+                background: tab===k ? abg : 'transparent',
                 color: tab===k ? ac : 'var(--text-muted)',
-                display:'flex', gap:6, alignItems:'center', justifyContent:'center',
-                transition:'all .12s',
+                display:'flex', gap:4, alignItems:'center', justifyContent:'center',
+                transition:'all .12s', minWidth:0, overflow:'hidden',
               }}>
-                {l}
+                <span style={{overflow:'hidden',textOverflow:'ellipsis'}}>{l}</span>
                 <span style={{
-                  background: tab===k ? ac : 'rgba(255,255,255,.08)',
-                  color: tab===k ? (k==='all'?'var(--text-primary)':'#000') : 'var(--text-muted)',
-                  borderRadius:10, padding:'1px 7px', fontSize:11, fontWeight:800,
-                  minWidth:24, textAlign:'center',
+                  background: tab===k ? ac : 'rgba(255,255,255,.1)',
+                  color: tab===k ? '#000' : 'var(--text-muted)',
+                  borderRadius:8, padding:'1px 5px', fontSize:10, fontWeight:800,
+                  flexShrink:0,
                 }}>{c}</span>
               </button>
             ))}
