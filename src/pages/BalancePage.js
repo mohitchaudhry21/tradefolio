@@ -57,6 +57,8 @@ export default function BalancePage() {
 
   const fromDate = useCustom ? customFrom : effectiveFromDate;
   const toDate   = useCustom ? customTo   : effectiveToDate;
+
+  const accountTrades = useMemo(() => {
     if (!activeAccountId) return trades;
     return trades.filter(t => t.accountId === activeAccountId || (!t.accountId && t.source === activeAccount?.name));
   }, [trades, activeAccountId, activeAccount]);
