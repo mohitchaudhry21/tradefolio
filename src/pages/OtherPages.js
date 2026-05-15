@@ -274,9 +274,19 @@ function parseMT5Text(rawText, brokerOffsetHrs, userOffsetHrs) {
     // Use price direction to determine sign — OCR often loses the minus sign
     const epF = parseFloat(ep), xpF = parseFloat(xp);
     const isLong  = dir.toLowerCase() === 'buy';
+    // Only trust price direction if prices are reasonable (both > 0 and similar magnitude)
+    const pricesValid = epF > 0 && xpF > 0 && Math.abs(epF - xpF) / Math.max(epF, xpF) < 0.05; // within 5% of each other
     const priceWin = isLong ? (xpF > epF) : (xpF < epF);
-    const pnlAbs  = Math.abs(parseFloat(pnlStr) || 0);
-    const pnl     = priceWin ? pnlAbs : -pnlAbs;
+    const pnlRaw  = parseFloat(pnlStr) || 0;
+    let pnl;
+    if (pricesValid) {
+      // Trust price direction to fix OCR sign errors
+      const pnlAbs = Math.abs(pnlRaw);
+      pnl = priceWin ? pnlAbs : -pnlAbs;
+    } else {
+      // Prices look garbled by OCR — trust the raw P&L value as-is
+      pnl = pnlRaw;
+    }
 
     trades.push({
       symbol:     cleanSym,
@@ -289,8 +299,8 @@ function parseMT5Text(rawText, brokerOffsetHrs, userOffsetHrs) {
       pnl,        fees: 0,
       status:     pnl > 0.5 ? 'Win' : pnl < -0.5 ? 'Loss' : 'Breakeven',
       source:     'MT5 Screenshot',
-      // Price-based positionId for dedup against Excel
-      positionId: `ss-${cleanSym}-${parseFloat(ep).toFixed(3)}-${parseFloat(xp).toFixed(3)}-${parseFloat(size).toFixed(2)}-${exitDt.date}`,
+      // Price-based positionId for dedup — no symbol since OCR often misreads it
+      positionId: `ss-${parseFloat(ep).toFixed(3)}-${parseFloat(xp).toFixed(3)}-${parseFloat(size).toFixed(2)}-${exitDt.date}`,
     });
     i++;
   }
@@ -594,7 +604,23 @@ export function ImportPage() {
   const [success,   setSuccess]   = useState('');
   const [loading,   setLoading]   = useState(false);
   const [csvText,   setCsvText]   = useState('');
-  const [importStats, setImportStats] = useState(null); // { added, duplicates }
+  const [importStats, setImportStats] = useState(null);
+  // Check localStorage for undo availability — persists across tab navigation
+  const [hasUndo, setHasUndo] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('tf_undo_stack')||'[]').length > 0; }
+    catch { return false; }
+  });
+
+  // Refresh undo availability whenever we return to this tab
+  useEffect(() => {
+    const checkUndo = () => {
+      try { setHasUndo(JSON.parse(localStorage.getItem('tf_undo_stack')||'[]').length > 0); }
+      catch { setHasUndo(false); }
+    };
+    checkUndo();
+    window.addEventListener('focus', checkUndo);
+    return () => window.removeEventListener('focus', checkUndo);
+  }, []);
   // Pre-populate from sidebar's active account
   const [importAccountId, setImportAccountId] = useState(activeAccountId || '');
   const fileInputRef = useRef();
@@ -648,17 +674,17 @@ export function ImportPage() {
     // Count duplicates before importing
     const existingPosIds  = new Set(trades.map(t=>t.positionId).filter(Boolean));
     const existingPriceKeys = new Set(trades.map(t => {
-      if (!t.symbol||!t.entryPrice||!t.exitPrice) return null;
+      if (!t.entryPrice||!t.exitPrice) return null;
       const d = t.exitDate||t.entryDate||'';
-      return `${t.symbol}-${parseFloat(t.entryPrice).toFixed(3)}-${parseFloat(t.exitPrice).toFixed(3)}-${parseFloat(t.size||0).toFixed(2)}-${d}`;
+      return `${parseFloat(t.entryPrice).toFixed(3)}-${parseFloat(t.exitPrice).toFixed(3)}-${parseFloat(t.size||0).toFixed(2)}-${d}`;
     }).filter(Boolean));
 
     let duplicates = 0, added = 0;
     preview.forEach(t => {
       const isPosMatch = t.positionId && existingPosIds.has(t.positionId);
       const d = t.exitDate||t.entryDate||'';
-      const pk = t.symbol&&t.entryPrice&&t.exitPrice
-        ? `${t.symbol}-${parseFloat(t.entryPrice).toFixed(3)}-${parseFloat(t.exitPrice).toFixed(3)}-${parseFloat(t.size||0).toFixed(2)}-${d}`
+      const pk = t.entryPrice&&t.exitPrice
+        ? `${parseFloat(t.entryPrice).toFixed(3)}-${parseFloat(t.exitPrice).toFixed(3)}-${parseFloat(t.size||0).toFixed(2)}-${d}`
         : null;
       const isPriceMatch = pk && existingPriceKeys.has(pk);
       if (isPosMatch || isPriceMatch) duplicates++; else added++;
@@ -667,6 +693,7 @@ export function ImportPage() {
     importTrades(preview, null, chosenAccountId);
     const accLabel = chosenAccount ? `→ ${chosenAccount.name}` : '(no account assigned)';
     setImportStats({ added, duplicates, total: preview.length });
+    setHasUndo(true);
     showToast({
       title: `Import complete · ${accLabel}`,
       message: `${added} new trade${added!==1?'s':''} added${duplicates>0?` · ${duplicates} duplicate${duplicates!==1?'s':''} merged`:''}`,
@@ -917,20 +944,31 @@ export function ImportPage() {
           </div>
         )}
 
-        {/* Import stats + Undo */}
-        {importStats && (
-          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'12px 16px', background:'rgba(74,222,128,.08)', border:'1px solid rgba(74,222,128,.2)', borderRadius:8, marginTop:12 }}>
+        {/* Import stats + Undo — persists across tab navigation */}
+        {(importStats || hasUndo) && (
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'12px 16px', background: importStats ? 'rgba(74,222,128,.08)' : 'var(--bg-hover)', border:`1px solid ${importStats?'rgba(74,222,128,.2)':'var(--border)'}`, borderRadius:8, marginTop:12 }}>
             <div style={{ fontSize:13, fontWeight:600 }}>
-              <span style={{ color:'#4ade80' }}>✓ {importStats.added} new trade{importStats.added!==1?'s':''} added</span>
-              {importStats.duplicates > 0 && (
-                <span style={{ color:'var(--text-muted)', marginLeft:12 }}>· {importStats.duplicates} duplicate{importStats.duplicates!==1?'s':''} merged (not duplicated)</span>
+              {importStats ? (
+                <>
+                  <span style={{ color:'#4ade80' }}>✓ {importStats.added} new trade{importStats.added!==1?'s':''} added</span>
+                  {importStats.duplicates > 0 && (
+                    <span style={{ color:'var(--text-muted)', marginLeft:12 }}>· {importStats.duplicates} duplicate{importStats.duplicates!==1?'s':''} merged</span>
+                  )}
+                </>
+              ) : (
+                <span style={{ color:'var(--text-muted)' }}>↩ Previous import can be undone</span>
               )}
             </div>
             <button className="btn btn-secondary btn-sm" onClick={() => {
               if (!window.confirm('Undo the last import? This will revert all trades added in that import.')) return;
               const ok = undoLastImport();
-              if (ok) { setImportStats(null); showToast({ title: '↩ Import undone', message: 'Trades reverted to before the import' }); }
-              else showToast({ title: 'Nothing to undo', message: 'No import history found' });
+              if (ok) {
+                setImportStats(null);
+                try { setHasUndo(JSON.parse(localStorage.getItem('tf_undo_stack')||'[]').length > 0); } catch {}
+                showToast({ title: '↩ Import undone', message: 'Trades reverted to before the import' });
+              } else {
+                showToast({ title: 'Nothing to undo', message: 'No import history found' });
+              }
             }}>↩ Undo Import</button>
           </div>
         )}
