@@ -136,8 +136,8 @@ export default function BalancePage() {
         tradePnl:w.tradePnl, deposits:w.deposits,
         withdrawals:w.withdrawals, profitWithdrawals:actualWithdraw,
         startBal:w.startBalance, endBal:w.endBalance,
-        tradeOnlyBal, threshold, aboveThresh, splitDue,
-        // Suggested vs actual
+        tradeOnlyBal: didWithdraw ? newThreshold : tradeOnlyBal, // use post-withdrawal value
+        threshold, aboveThresh, splitDue,
         suggestedWithdraw, suggestedKeep,
         actualWithdraw, didWithdraw,
         newThreshold,
