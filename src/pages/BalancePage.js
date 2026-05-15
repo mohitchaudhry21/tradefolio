@@ -73,6 +73,7 @@ export default function BalancePage() {
   }, [events, startingBalance]);
 
   // Weekly data — threshold ONLY moves on isProfitWithdrawal withdrawals
+  // Threshold comparison uses trade-only balance (ignores deposits/capital withdrawals)
   const weeklyData = useMemo(() => {
     if (!rows.length) return [];
     const byWeek = {};
@@ -88,17 +89,39 @@ export default function BalancePage() {
     });
     const weeks=Object.keys(byWeek).sort();
     weeks.forEach((wk,i)=>{ byWeek[wk].startBalance=i===0?startingBalance:byWeek[weeks[i-1]].endBalance; byWeek[wk].tradePnl=parseFloat(byWeek[wk].tradePnl.toFixed(2)); });
-    let threshold=startingBalance;
+
+    let threshold = startingBalance;
+    // tradeOnlyBal: tracks cumulative trade P&L only — deposits/withdrawals don't affect it
+    // This is the value compared to threshold, so re-depositing money doesn't fake a split trigger
+    let tradeOnlyBal = startingBalance;
+
     return weeks.map(wk=>{
       const w=byWeek[wk];
-      const closingBal=w.endBalance;
-      const aboveThresh=parseFloat((closingBal-threshold).toFixed(2));
-      const splitDue=aboveThresh>0;
-      const withdrawAmt=splitDue?parseFloat((aboveThresh*(splitRatio/100)).toFixed(2)):0;
-      const keepAmt=splitDue?parseFloat((aboveThresh-withdrawAmt).toFixed(2)):0;
-      const newThreshold=splitDue?parseFloat((threshold+keepAmt).toFixed(2)):threshold;
-      const result={weekKey:wk,label:fmtWeek(wk),tradePnl:w.tradePnl,deposits:w.deposits,withdrawals:w.withdrawals,profitWithdrawals:w.profitWithdrawals,startBal:w.startBalance,endBal:closingBal,threshold,aboveThresh,splitDue,withdrawAmt,keepAmt,newThreshold,tradeCount:w.rows.filter(r=>r.isTrade).length};
-      if (splitDue) threshold=newThreshold;
+
+      // Only trade P&L moves tradeOnlyBal — deposits and withdrawals are ignored
+      tradeOnlyBal = parseFloat((tradeOnlyBal + w.tradePnl).toFixed(2));
+
+      const aboveThresh  = parseFloat((tradeOnlyBal - threshold).toFixed(2));
+      const splitDue     = aboveThresh > 0;
+      const withdrawAmt  = splitDue ? parseFloat((aboveThresh*(splitRatio/100)).toFixed(2)) : 0;
+      const keepAmt      = splitDue ? parseFloat((aboveThresh-withdrawAmt).toFixed(2))       : 0;
+      const newThreshold = splitDue ? parseFloat((threshold+keepAmt).toFixed(2))              : threshold;
+
+      // When a split is triggered, reset tradeOnlyBal to the new threshold
+      // (the withdrawn portion is "taken out" of the trade balance too)
+      if (splitDue) tradeOnlyBal = newThreshold;
+
+      const result={
+        weekKey:wk, label:fmtWeek(wk),
+        tradePnl:w.tradePnl, deposits:w.deposits,
+        withdrawals:w.withdrawals, profitWithdrawals:w.profitWithdrawals,
+        startBal:w.startBalance, endBal:w.endBalance,
+        tradeOnlyBal, threshold, aboveThresh, splitDue,
+        withdrawAmt, keepAmt, newThreshold,
+        tradeCount:w.rows.filter(r=>r.isTrade).length,
+      };
+
+      if (splitDue) threshold = newThreshold;
       return result;
     });
   }, [rows, startingBalance, splitRatio]);
@@ -284,7 +307,7 @@ export default function BalancePage() {
               <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
                 <thead>
                   <tr style={{borderBottom:'2px solid var(--border)'}}>
-                    {['Week','Trades','P&L','Closing Bal','Threshold','Above?','Take Out','Keep','New Threshold'].map(h=>(
+                    {['Week','Trades','P&L','Trade Balance','Actual Balance','Threshold','Above?','Take Out','Keep','New Threshold'].map(h=>(
                       <th key={h} style={{padding:'8px 10px',textAlign:h==='Week'||h==='Trades'?'left':'right',fontSize:10,fontWeight:700,color:'var(--text-muted)',letterSpacing:'.4px',whiteSpace:'nowrap'}}>{h}</th>
                     ))}
                   </tr>
@@ -297,7 +320,12 @@ export default function BalancePage() {
                       <td style={{padding:'10px 10px',whiteSpace:'nowrap',fontSize:12,fontWeight:600}}>{w.label}</td>
                       <td style={{padding:'10px 10px',color:'var(--text-muted)',fontSize:12}}>{w.tradeCount}</td>
                       <td style={{padding:'10px 10px',textAlign:'right',fontWeight:700,color:clr(w.tradePnl),whiteSpace:'nowrap'}}>{w.tradePnl>=0?'+':''}{fmtA(w.tradePnl)}</td>
-                      <td style={{padding:'10px 10px',textAlign:'right',fontWeight:800,color:w.endBal>=w.threshold?'#4ade80':'var(--text-primary)',whiteSpace:'nowrap'}}>{fmtA(w.endBal)}</td>
+                      {/* Trade-only balance — used for threshold comparison */}
+                      <td style={{padding:'10px 10px',textAlign:'right',fontWeight:800,color:w.tradeOnlyBal>=w.threshold?'#4ade80':'var(--text-primary)',whiteSpace:'nowrap'}}>
+                        <span title="Trade P&L only — deposits/withdrawals excluded">{fmtA(w.tradeOnlyBal)}</span>
+                      </td>
+                      {/* Actual balance including deposits and withdrawals */}
+                      <td style={{padding:'10px 10px',textAlign:'right',fontWeight:600,color:'var(--text-secondary)',whiteSpace:'nowrap',fontSize:12}}>{fmtA(w.endBal)}</td>
                       <td style={{padding:'10px 10px',textAlign:'right',color:'#f59e0b',fontWeight:700,whiteSpace:'nowrap'}}>{fmtA(w.threshold)}</td>
                       <td style={{padding:'10px 10px',textAlign:'right'}}>
                         {w.splitDue
