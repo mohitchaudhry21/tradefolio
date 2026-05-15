@@ -230,11 +230,12 @@ export function TradesProvider({ children }) {
       'notes','setup','emotion','tags','mistakes','rMultiple','status','timeframe',
     ];
 
-    // Build a price-based lookup key for fuzzy matching (no symbol — OCR often misreads it)
+    // Build a price-based lookup key — round to nearest integer to handle OCR decimal truncation
+    // e.g. OCR reads 4688.01 but Excel has 4688.014 — both round to 4688
     const priceKey = t => {
       if (!t.entryPrice || !t.exitPrice) return null;
       const dateStr = t.exitDate || t.entryDate || '';
-      return `${parseFloat(t.entryPrice).toFixed(3)}-${parseFloat(t.exitPrice).toFixed(3)}-${parseFloat(t.size||0).toFixed(2)}-${dateStr}`;
+      return `${Math.round(parseFloat(t.entryPrice))}-${Math.round(parseFloat(t.exitPrice))}-${parseFloat(t.size||0).toFixed(2)}-${dateStr}`;
     };
 
     setTrades(prev => {
