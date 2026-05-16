@@ -50,25 +50,24 @@ function parseMT5Excel(data) {
   let dataStartRow = -1;
   let dataEndRow   = data.length;
 
-  // Find column header row (Time | Position | Symbol | Type | Volume | ...)
-  // and detect end at Orders/Deals section
+  // Find column header row — handle MT5 format variations
+  // Looks for: Time/Open Time/Entry | Position | Symbol | Type
   for (let i = 0; i < data.length; i++) {
     const row = data[i];
     if (!row || !row.length) continue;
-    const c0 = cellStr(row, 0).toLowerCase();
-    const c1 = cellStr(row, 1).toLowerCase();
+    const cells = row.map(c => String(c||'').toLowerCase().trim());
 
-    // Stop at Orders or Deals section
-    if ((c0 === 'orders' || c0 === 'deals') && !c1 && dataStartRow >= 0) {
-      dataEndRow = i; break;
+    // Stop at Orders or Deals section (after we've found the start)
+    if (dataStartRow >= 0) {
+      if (cells[0] === 'orders' || cells[0] === 'deals') { dataEndRow = i; break; }
     }
 
-    // Column header row: Time/Open Time | Position | Symbol | Type
-    if (
-      (c0 === 'time' || c0 === 'open time') &&
-      c1 === 'position' &&
-      cellStr(row, 2).toLowerCase() === 'symbol'
-    ) {
+    // Find "Position" in any of first 3 columns alongside "Symbol"
+    const posColIdx = cells.slice(0,4).findIndex(c => c === 'position');
+    const symColIdx = cells.slice(0,6).findIndex(c => c === 'symbol');
+    const timeInRow = cells.slice(0,2).some(c => c.includes('time') || c === 'open' || c === 'entry');
+
+    if (posColIdx >= 0 && symColIdx > posColIdx && timeInRow) {
       dataStartRow = i + 1;
     }
   }
