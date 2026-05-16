@@ -687,26 +687,20 @@ export function ImportPage() {
     const chosenAccount = accounts.find(a => a.id === chosenAccountId);
 
     // Count duplicates before importing
-    const existingPosIds  = new Set(trades.map(t=>t.positionId).filter(Boolean));
-    const existingPriceKeys = new Set(trades.map(t => {
+    const existingPosIds = new Set(trades.map(t=>t.positionId).filter(Boolean));
+    const existingKeys   = new Set(trades.map(t => {
+      if (t.isWithdrawal||t.isDeposit) return `wd-${Math.round(Math.abs(t.pnl||0))}-${t.exitDate||t.entryDate||''}`;
       if (!t.entryPrice) return null;
-      const d = t.exitDate||t.entryDate||'';
-      const ep = Math.round(parseFloat(t.entryPrice));
-      const sz = parseFloat(t.size||0).toFixed(2);
-      if (t.exitPrice) return `${ep}-${Math.round(parseFloat(t.exitPrice))}-${sz}-${d}`;
-      return `ep-${ep}-${sz}-${d}`;
+      return `${Math.round(parseFloat(t.entryPrice))}-${parseFloat(t.size||0).toFixed(2)}-${t.exitDate||t.entryDate||''}`;
     }).filter(Boolean));
 
     let duplicates = 0, added = 0;
     preview.forEach(t => {
       const isPosMatch = t.positionId && existingPosIds.has(t.positionId);
-      const d = t.exitDate||t.entryDate||'';
-      const ep = Math.round(parseFloat(t.entryPrice));
-      const sz = parseFloat(t.size||0).toFixed(2);
-      const pk = t.entryPrice
-        ? (t.exitPrice ? `${ep}-${Math.round(parseFloat(t.exitPrice))}-${sz}-${d}` : `ep-${ep}-${sz}-${d}`)
-        : null;
-      const isPriceMatch = pk && existingPriceKeys.has(pk);
+      const k = t.isWithdrawal||t.isDeposit
+        ? `wd-${Math.round(Math.abs(t.pnl||0))}-${t.exitDate||t.entryDate||''}`
+        : t.entryPrice ? `${Math.round(parseFloat(t.entryPrice))}-${parseFloat(t.size||0).toFixed(2)}-${t.exitDate||t.entryDate||''}` : null;
+      const isPriceMatch = k && existingKeys.has(k);
       if (isPosMatch || isPriceMatch) duplicates++; else added++;
     });
 
@@ -726,28 +720,17 @@ export function ImportPage() {
   const isDuplicate = (t) => {
     const existingPosIds = new Set(trades.map(x=>x.positionId).filter(Boolean));
     if (t.positionId && existingPosIds.has(t.positionId)) return true;
-    if (t.isWithdrawal||t.isDeposit) {
+    if (t.isWithdrawal || t.isDeposit) {
       const d = t.exitDate||t.entryDate||'';
-      return trades.some(x=>(x.isWithdrawal||x.isDeposit) && Math.abs((x.pnl||0)-(t.pnl||0))<0.01 && (x.exitDate||x.entryDate||'')===d);
+      const amt = Math.round(Math.abs(t.pnl||0));
+      return trades.some(x=>(x.isWithdrawal||x.isDeposit) && Math.round(Math.abs(x.pnl||0))===amt && (x.exitDate||x.entryDate||'')===d);
     }
     if (!t.entryPrice) return false;
-    const ep  = Math.round(parseFloat(t.entryPrice));
-    const sz  = parseFloat(t.size||0).toFixed(2);
-    const d   = t.exitDate||t.entryDate||'';
-    const xp  = t.exitPrice ? Math.round(parseFloat(t.exitPrice)) : null;
-    const keyWd  = xp ? `${ep}-${xp}-${sz}-${d}` : `ep-${ep}-${sz}-${d}`;
-    const keyNd  = xp ? `${ep}-${xp}-${sz}` : `ep-${ep}-${sz}`;
-    const keyE   = `e-${ep}-${sz}`;
+    const key = `${Math.round(parseFloat(t.entryPrice))}-${parseFloat(t.size||0).toFixed(2)}-${t.exitDate||t.entryDate||''}`;
     return trades.some(x => {
       if (!x.entryPrice) return false;
-      const xep = Math.round(parseFloat(x.entryPrice));
-      const xxp = x.exitPrice ? Math.round(parseFloat(x.exitPrice)) : null;
-      const xsz = parseFloat(x.size||0).toFixed(2);
-      const xd  = x.exitDate||x.entryDate||'';
-      if ((xxp ? `${xep}-${xxp}-${xsz}-${xd}` : `ep-${xep}-${xsz}-${xd}`) === keyWd) return true;
-      if ((xxp ? `${xep}-${xxp}-${xsz}` : `ep-${xep}-${xsz}`) === keyNd) return true;
-      if (`e-${xep}-${xsz}` === keyE) return true;
-      return false;
+      const xk = `${Math.round(parseFloat(x.entryPrice))}-${parseFloat(x.size||0).toFixed(2)}-${x.exitDate||x.entryDate||''}`;
+      return xk === key;
     });
   };
   const exportAll = () => {
@@ -927,7 +910,7 @@ export function ImportPage() {
 
         {/* ── Preview ───────────────────────────────────────────────────── */}
         {preview && preview.length > 0 && (
-          <div style={{ marginTop:14, background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:10, overflow:'hidden', position:'relative', left:'-14px', width:'calc(100% + 28px)' }}>
+          <div style={{ marginTop:14, background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:10, overflow:'hidden', margin:'14px -28px 0 -28px' }}>
             {/* Account confirmation reminder */}
             <div style={{ padding:'8px 18px', borderBottom:'1px solid var(--border)', background: importAccountId ? 'rgba(59,130,246,.06)' : 'rgba(239,68,68,.06)', display:'flex', alignItems:'center', gap:8 }}>
               {importAccountId
