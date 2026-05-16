@@ -230,52 +230,32 @@ export function TradesProvider({ children }) {
       'notes','setup','emotion','tags','mistakes','rMultiple','status','timeframe',
     ];
 
-    // Price key with date
-    const priceKey = t => {
-      const dateStr = t.exitDate || t.entryDate || '';
-      if (t.isWithdrawal || t.isDeposit) return `wd-${parseFloat(t.pnl||0).toFixed(2)}-${dateStr}`;
+    // Dedup key: entryPrice (rounded) + size + date — reliable across Excel/screenshot/OCR variations
+    const tradeKey = t => {
+      if (t.isWithdrawal || t.isDeposit) {
+        const d = t.exitDate || t.entryDate || '';
+        return `wd-${Math.round(Math.abs(t.pnl||0))}-${d}`;
+      }
       if (!t.entryPrice) return null;
-      const ep = Math.round(parseFloat(t.entryPrice));
-      const sz = parseFloat(t.size||0).toFixed(2);
-      if (t.exitPrice) return `${ep}-${Math.round(parseFloat(t.exitPrice))}-${sz}-${dateStr}`;
-      return `ep-${ep}-${sz}-${dateStr}`;
-    };
-
-    // Price key WITHOUT date — fallback for when OCR date differs from Excel date
-    const priceKeyNoDate = t => {
-      if (t.isWithdrawal || t.isDeposit || !t.entryPrice) return null;
-      const ep = Math.round(parseFloat(t.entryPrice));
-      const sz = parseFloat(t.size||0).toFixed(2);
-      if (t.exitPrice) return `${ep}-${Math.round(parseFloat(t.exitPrice))}-${sz}`;
-      return `ep-${ep}-${sz}`;
-    };
-
-    // Entry-only key — matches when one side has exitPrice and other doesn't
-    const priceKeyEntryOnly = t => {
-      if (t.isWithdrawal || t.isDeposit || !t.entryPrice) return null;
-      return `e-${Math.round(parseFloat(t.entryPrice))}-${parseFloat(t.size||0).toFixed(2)}`;
+      const d = t.exitDate || t.entryDate || '';
+      return `${Math.round(parseFloat(t.entryPrice))}-${parseFloat(t.size||0).toFixed(2)}-${d}`;
     };
 
     setTrades(prev => {
-      const matchedIds = new Set();
+      const matchedIds    = new Set();
+      const existingKeys  = new Set(prev.map(t => tradeKey(t)).filter(Boolean));
+      const existingPosIds = new Set(prev.map(t => t.positionId).filter(Boolean));
 
       const updated = prev.map(existing => {
+        // 1. positionId exact match
         let incoming = existing.positionId
           ? normalized.find(t => t.positionId === existing.positionId)
           : null;
 
+        // 2. tradeKey match (entry price + size + date)
         if (!incoming) {
-          const k = priceKey(existing);
-          if (k) incoming = normalized.find(t => priceKey(t) === k && !matchedIds.has(existing.id));
-        }
-        if (!incoming) {
-          const k = priceKeyNoDate(existing);
-          if (k) incoming = normalized.find(t => priceKeyNoDate(t) === k && !matchedIds.has(existing.id));
-        }
-        // Fallback: match by entry price + size only (handles Excel trades with no exitPrice)
-        if (!incoming) {
-          const k = priceKeyEntryOnly(existing);
-          if (k) incoming = normalized.find(t => priceKeyEntryOnly(t) === k && !matchedIds.has(existing.id));
+          const k = tradeKey(existing);
+          if (k) incoming = normalized.find(t => tradeKey(t) === k && !matchedIds.has(existing.id));
         }
 
         if (!incoming) return existing;
@@ -298,19 +278,10 @@ export function TradesProvider({ children }) {
         return { ...existing, ...incoming, ...preserved, id: existing.id, positionId: keepPositionId, accountId: incoming.accountId || existing.accountId, source: incoming.source || existing.source };
       });
 
-      const existingPositionIds  = new Set(prev.map(t => t.positionId).filter(Boolean));
-      const existingPriceKeys    = new Set(prev.map(t => priceKey(t)).filter(Boolean));
-      const existingPriceKeysND  = new Set(prev.map(t => priceKeyNoDate(t)).filter(Boolean));
-      const existingEntryKeys    = new Set(prev.map(t => priceKeyEntryOnly(t)).filter(Boolean));
-
       const brandNew = normalized.filter(t => {
-        if (t.positionId && existingPositionIds.has(t.positionId)) return false;
-        const k = priceKey(t);
-        if (k && existingPriceKeys.has(k)) return false;
-        const knd = priceKeyNoDate(t);
-        if (knd && existingPriceKeysND.has(knd)) return false;
-        const ke = priceKeyEntryOnly(t);
-        if (ke && existingEntryKeys.has(ke)) return false;
+        if (t.positionId && existingPosIds.has(t.positionId)) return false;
+        const k = tradeKey(t);
+        if (k && existingKeys.has(k)) return false;
         return true;
       });
       const merged = [...brandNew, ...updated];
