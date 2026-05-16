@@ -723,31 +723,31 @@ export function ImportPage() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // Check which preview trades already exist (for duplicate highlighting)
   const isDuplicate = (t) => {
     const existingPosIds = new Set(trades.map(x=>x.positionId).filter(Boolean));
     if (t.positionId && existingPosIds.has(t.positionId)) return true;
-    const d = t.exitDate||t.entryDate||'';
-    const ep = t.entryPrice ? Math.round(parseFloat(t.entryPrice)) : null;
-    const xp = t.exitPrice  ? Math.round(parseFloat(t.exitPrice))  : null;
-    const sz = parseFloat(t.size||0).toFixed(2);
     if (t.isWithdrawal||t.isDeposit) {
+      const d = t.exitDate||t.entryDate||'';
       return trades.some(x=>(x.isWithdrawal||x.isDeposit) && Math.abs((x.pnl||0)-(t.pnl||0))<0.01 && (x.exitDate||x.entryDate||'')===d);
     }
-    if (!ep) return false;
-    // Check with date
+    if (!t.entryPrice) return false;
+    const ep  = Math.round(parseFloat(t.entryPrice));
+    const sz  = parseFloat(t.size||0).toFixed(2);
+    const d   = t.exitDate||t.entryDate||'';
+    const xp  = t.exitPrice ? Math.round(parseFloat(t.exitPrice)) : null;
     const keyWd  = xp ? `${ep}-${xp}-${sz}-${d}` : `ep-${ep}-${sz}-${d}`;
-    // Check without date
     const keyNd  = xp ? `${ep}-${xp}-${sz}` : `ep-${ep}-${sz}`;
+    const keyE   = `e-${ep}-${sz}`;
     return trades.some(x => {
       if (!x.entryPrice) return false;
       const xep = Math.round(parseFloat(x.entryPrice));
       const xxp = x.exitPrice ? Math.round(parseFloat(x.exitPrice)) : null;
       const xsz = parseFloat(x.size||0).toFixed(2);
       const xd  = x.exitDate||x.entryDate||'';
-      const xkWd = xxp ? `${xep}-${xxp}-${xsz}-${xd}` : `ep-${xep}-${xsz}-${xd}`;
-      const xkNd = xxp ? `${xep}-${xxp}-${xsz}` : `ep-${xep}-${xsz}`;
-      return xkWd === keyWd || xkNd === keyNd;
+      if ((xxp ? `${xep}-${xxp}-${xsz}-${xd}` : `ep-${xep}-${xsz}-${xd}`) === keyWd) return true;
+      if ((xxp ? `${xep}-${xxp}-${xsz}` : `ep-${xep}-${xsz}`) === keyNd) return true;
+      if (`e-${xep}-${xsz}` === keyE) return true;
+      return false;
     });
   };
   const exportAll = () => {
@@ -927,7 +927,7 @@ export function ImportPage() {
 
         {/* ── Preview ───────────────────────────────────────────────────── */}
         {preview && preview.length > 0 && (
-          <div className="card" style={{ marginTop:14, padding:0 }}>
+          <div style={{ marginTop:14, background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:10, overflow:'hidden', position:'relative', left:'-14px', width:'calc(100% + 28px)' }}>
             {/* Account confirmation reminder */}
             <div style={{ padding:'8px 18px', borderBottom:'1px solid var(--border)', background: importAccountId ? 'rgba(59,130,246,.06)' : 'rgba(239,68,68,.06)', display:'flex', alignItems:'center', gap:8 }}>
               {importAccountId
@@ -957,40 +957,34 @@ export function ImportPage() {
               </div>
             </div>
 
-            <div style={{ overflowX:'auto', overflowY:'auto', maxHeight:'65vh' }}>
-              <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+            <div style={{ overflowX:'auto', overflowY:'auto', maxHeight:'60vh' }}>
+              <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
                 <thead style={{position:'sticky',top:0,background:'var(--bg-card)',zIndex:1}}>
                   <tr style={{borderBottom:'2px solid var(--border)'}}>
-                    <th style={{padding:'10px 14px',textAlign:'left',fontSize:11,fontWeight:700,color:'var(--text-muted)',letterSpacing:'.4px',whiteSpace:'nowrap'}}>Symbol</th>
-                    <th style={{padding:'10px 14px',textAlign:'left',fontSize:11,fontWeight:700,color:'var(--text-muted)',letterSpacing:'.4px'}}>Side</th>
-                    <th style={{padding:'10px 14px',textAlign:'left',fontSize:11,fontWeight:700,color:'var(--text-muted)',letterSpacing:'.4px'}}>Status</th>
-                    <th style={{padding:'10px 14px',textAlign:'left',fontSize:11,fontWeight:700,color:'var(--text-muted)',letterSpacing:'.4px',whiteSpace:'nowrap'}}>Entry Date</th>
-                    <th style={{padding:'10px 14px',textAlign:'right',fontSize:11,fontWeight:700,color:'var(--text-muted)',letterSpacing:'.4px'}}>Entry</th>
-                    <th style={{padding:'10px 14px',textAlign:'right',fontSize:11,fontWeight:700,color:'var(--text-muted)',letterSpacing:'.4px'}}>Exit</th>
-                    <th style={{padding:'10px 14px',textAlign:'right',fontSize:11,fontWeight:700,color:'var(--text-muted)',letterSpacing:'.4px'}}>Size</th>
-                    <th style={{padding:'10px 14px',textAlign:'right',fontSize:11,fontWeight:700,color:'var(--text-muted)',letterSpacing:'.4px',whiteSpace:'nowrap'}}>Comm</th>
-                    <th style={{padding:'10px 14px',textAlign:'right',fontSize:11,fontWeight:700,color:'var(--text-muted)',letterSpacing:'.4px'}}>P&L</th>
+                    {['Symbol','Side','Status','Date','Entry','Exit','Size','Comm','P&L'].map(h=>(
+                      <th key={h} style={{padding:'8px 10px',textAlign:['Entry','Exit','Size','Comm','P&L'].includes(h)?'right':'left',fontSize:10,fontWeight:700,color:'var(--text-muted)',letterSpacing:'.4px',whiteSpace:'nowrap'}}>{h}</th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
                   {preview.map((t,i) => {
                     const dup = isDuplicate(t);
                     return (
-                    <tr key={i} style={{borderBottom:'1px solid var(--border)', opacity: dup ? 0.5 : 1, background: dup ? 'rgba(245,158,11,.04)' : '', transition:'background .1s'}}
+                    <tr key={i} style={{borderBottom:'1px solid var(--border)', opacity: dup ? 0.45 : 1, background: dup ? 'rgba(245,158,11,.04)' : ''}}
                       onMouseEnter={e=>e.currentTarget.style.background=dup?'rgba(245,158,11,.08)':'var(--bg-hover)'}
                       onMouseLeave={e=>e.currentTarget.style.background=dup?'rgba(245,158,11,.04)':''}>
-                      <td style={{padding:'10px 14px',fontWeight:700,whiteSpace:'nowrap'}}>
+                      <td style={{padding:'8px 10px',fontWeight:700,whiteSpace:'nowrap'}}>
                         {t.symbol}
-                        {dup && <span style={{marginLeft:6,fontSize:9,background:'rgba(245,158,11,.2)',color:'#f59e0b',borderRadius:4,padding:'1px 5px',fontWeight:700}}>DUP</span>}
+                        {dup && <span style={{marginLeft:5,fontSize:9,background:'rgba(245,158,11,.2)',color:'#f59e0b',borderRadius:4,padding:'1px 5px',fontWeight:700}}>DUP</span>}
                       </td>
-                      <td style={{padding:'10px 14px'}}><span className={`badge badge-${t.side.toLowerCase()}`}>{t.side}</span></td>
-                      <td style={{padding:'10px 14px'}}><span className={`badge badge-${t.status==='Win'?'win':t.status==='Loss'?'loss':'be'}`}>{t.status}</span></td>
-                      <td style={{padding:'10px 14px',color:'var(--text-secondary)',fontSize:12,whiteSpace:'nowrap'}}>{t.entryDate} <span style={{color:'var(--text-muted)'}}>{t.entryTime}</span></td>
-                      <td style={{padding:'10px 14px',textAlign:'right',fontFamily:'monospace',fontSize:12}}>{t.entryPrice}</td>
-                      <td style={{padding:'10px 14px',textAlign:'right',fontFamily:'monospace',fontSize:12}}>{t.exitPrice||'—'}</td>
-                      <td style={{padding:'10px 14px',textAlign:'right',color:'var(--text-secondary)'}}>{t.size}</td>
-                      <td style={{padding:'10px 14px',textAlign:'right',color:'var(--red)',fontSize:12}}>{t.fees > 0 ? `-$${t.fees}` : '—'}</td>
-                      <td style={{padding:'10px 14px',textAlign:'right',fontWeight:700,color:t.pnl>=0?'var(--blue-bright)':'var(--red)',whiteSpace:'nowrap'}}>
+                      <td style={{padding:'8px 10px'}}><span className={`badge badge-${t.side.toLowerCase()}`}>{t.side}</span></td>
+                      <td style={{padding:'8px 10px'}}><span className={`badge badge-${t.status==='Win'?'win':t.status==='Loss'?'loss':'be'}`}>{t.status}</span></td>
+                      <td style={{padding:'8px 10px',color:'var(--text-secondary)',whiteSpace:'nowrap'}}>{t.entryDate} <span style={{color:'var(--text-muted)',fontSize:10}}>{t.entryTime}</span></td>
+                      <td style={{padding:'8px 10px',textAlign:'right',fontFamily:'monospace'}}>{t.entryPrice}</td>
+                      <td style={{padding:'8px 10px',textAlign:'right',fontFamily:'monospace'}}>{t.exitPrice||'—'}</td>
+                      <td style={{padding:'8px 10px',textAlign:'right',color:'var(--text-secondary)'}}>{t.size}</td>
+                      <td style={{padding:'8px 10px',textAlign:'right',color:'var(--red)'}}>{t.fees>0?`-$${t.fees}`:'—'}</td>
+                      <td style={{padding:'8px 10px',textAlign:'right',fontWeight:700,color:t.pnl>=0?'var(--blue-bright)':'var(--red)',whiteSpace:'nowrap'}}>
                         {t.pnl>=0?'+':''}{(t.pnl||0).toFixed(2)}
                       </td>
                     </tr>
