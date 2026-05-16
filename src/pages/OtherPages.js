@@ -938,11 +938,14 @@ export function ImportPage() {
 
             {/* Preview header */}
             <div style={{ padding:'14px 18px', borderBottom:'1px solid var(--border)', display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:10 }}>
-              <div>
+              <div style={{display:'flex',alignItems:'center',gap:12}}>
                 <span style={{ fontWeight:700, fontSize:14 }}>Preview — {preview.length} trades</span>
-                <span style={{ fontSize:12, color:'var(--text-muted)', marginLeft:10 }}>
-                  {wins}W / {preview.length - wins}L
-                </span>
+                <span style={{ fontSize:12, color:'var(--text-muted)' }}>{wins}W / {preview.length - wins}L</span>
+                {preview.filter(t=>isDuplicate(t)).length > 0 && (
+                  <span style={{fontSize:11,background:'rgba(245,158,11,.15)',color:'#f59e0b',borderRadius:5,padding:'2px 8px',fontWeight:700}}>
+                    {preview.filter(t=>isDuplicate(t)).length} already exist (DUP) — will be skipped
+                  </span>
+                )}
               </div>
               <div style={{ display:'flex', gap:8, alignItems:'center' }}>
                 <span className={totalPnl>=0?'pos':'neg'} style={{ fontWeight:700, fontSize:13 }}>
@@ -954,33 +957,41 @@ export function ImportPage() {
               </div>
             </div>
 
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Symbol</th><th>Side</th><th>Status</th>
-                    <th>Entry Date</th><th>Entry</th><th>Exit</th>
-                    <th>Size</th><th>Commission</th><th>P&L</th>
+            <div style={{ overflowX:'auto', overflowY:'auto', maxHeight:'65vh' }}>
+              <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+                <thead style={{position:'sticky',top:0,background:'var(--bg-card)',zIndex:1}}>
+                  <tr style={{borderBottom:'2px solid var(--border)'}}>
+                    <th style={{padding:'10px 14px',textAlign:'left',fontSize:11,fontWeight:700,color:'var(--text-muted)',letterSpacing:'.4px',whiteSpace:'nowrap'}}>Symbol</th>
+                    <th style={{padding:'10px 14px',textAlign:'left',fontSize:11,fontWeight:700,color:'var(--text-muted)',letterSpacing:'.4px'}}>Side</th>
+                    <th style={{padding:'10px 14px',textAlign:'left',fontSize:11,fontWeight:700,color:'var(--text-muted)',letterSpacing:'.4px'}}>Status</th>
+                    <th style={{padding:'10px 14px',textAlign:'left',fontSize:11,fontWeight:700,color:'var(--text-muted)',letterSpacing:'.4px',whiteSpace:'nowrap'}}>Entry Date</th>
+                    <th style={{padding:'10px 14px',textAlign:'right',fontSize:11,fontWeight:700,color:'var(--text-muted)',letterSpacing:'.4px'}}>Entry</th>
+                    <th style={{padding:'10px 14px',textAlign:'right',fontSize:11,fontWeight:700,color:'var(--text-muted)',letterSpacing:'.4px'}}>Exit</th>
+                    <th style={{padding:'10px 14px',textAlign:'right',fontSize:11,fontWeight:700,color:'var(--text-muted)',letterSpacing:'.4px'}}>Size</th>
+                    <th style={{padding:'10px 14px',textAlign:'right',fontSize:11,fontWeight:700,color:'var(--text-muted)',letterSpacing:'.4px',whiteSpace:'nowrap'}}>Comm</th>
+                    <th style={{padding:'10px 14px',textAlign:'right',fontSize:11,fontWeight:700,color:'var(--text-muted)',letterSpacing:'.4px'}}>P&L</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {preview.slice(0, 20).map((t,i) => {
+                  {preview.map((t,i) => {
                     const dup = isDuplicate(t);
                     return (
-                    <tr key={i} style={{opacity: dup ? 0.5 : 1, background: dup ? 'rgba(245,158,11,.04)' : ''}}>
-                      <td style={{ fontWeight:700 }}>
+                    <tr key={i} style={{borderBottom:'1px solid var(--border)', opacity: dup ? 0.5 : 1, background: dup ? 'rgba(245,158,11,.04)' : '', transition:'background .1s'}}
+                      onMouseEnter={e=>e.currentTarget.style.background=dup?'rgba(245,158,11,.08)':'var(--bg-hover)'}
+                      onMouseLeave={e=>e.currentTarget.style.background=dup?'rgba(245,158,11,.04)':''}>
+                      <td style={{padding:'10px 14px',fontWeight:700,whiteSpace:'nowrap'}}>
                         {t.symbol}
-                        {dup && <span style={{marginLeft:5,fontSize:9,background:'rgba(245,158,11,.2)',color:'#f59e0b',borderRadius:4,padding:'1px 5px',fontWeight:700}}>DUP</span>}
+                        {dup && <span style={{marginLeft:6,fontSize:9,background:'rgba(245,158,11,.2)',color:'#f59e0b',borderRadius:4,padding:'1px 5px',fontWeight:700}}>DUP</span>}
                       </td>
-                      <td><span className={`badge badge-${t.side.toLowerCase()}`}>{t.side}</span></td>
-                      <td><span className={`badge badge-${t.status==='Win'?'win':t.status==='Loss'?'loss':'be'}`}>{t.status}</span></td>
-                      <td style={{ color:'var(--text-secondary)', fontSize:12 }}>{t.entryDate}<br/><span style={{ color:'var(--text-muted)' }}>{t.entryTime}</span></td>
-                      <td style={{ fontFamily:'monospace', fontSize:12 }}>{t.entryPrice}</td>
-                      <td style={{ fontFamily:'monospace', fontSize:12 }}>{t.exitPrice}</td>
-                      <td style={{ color:'var(--text-secondary)' }}>{t.size}</td>
-                      <td style={{ color:'var(--red)', fontSize:12 }}>{t.fees > 0 ? `-$${t.fees}` : '—'}</td>
-                      <td style={{ fontWeight:700, color:t.pnl>=0?'var(--blue-bright)':'var(--red)' }}>
-                        {t.pnl>=0?'+':''}{t.pnl.toFixed(2)}
+                      <td style={{padding:'10px 14px'}}><span className={`badge badge-${t.side.toLowerCase()}`}>{t.side}</span></td>
+                      <td style={{padding:'10px 14px'}}><span className={`badge badge-${t.status==='Win'?'win':t.status==='Loss'?'loss':'be'}`}>{t.status}</span></td>
+                      <td style={{padding:'10px 14px',color:'var(--text-secondary)',fontSize:12,whiteSpace:'nowrap'}}>{t.entryDate} <span style={{color:'var(--text-muted)'}}>{t.entryTime}</span></td>
+                      <td style={{padding:'10px 14px',textAlign:'right',fontFamily:'monospace',fontSize:12}}>{t.entryPrice}</td>
+                      <td style={{padding:'10px 14px',textAlign:'right',fontFamily:'monospace',fontSize:12}}>{t.exitPrice||'—'}</td>
+                      <td style={{padding:'10px 14px',textAlign:'right',color:'var(--text-secondary)'}}>{t.size}</td>
+                      <td style={{padding:'10px 14px',textAlign:'right',color:'var(--red)',fontSize:12}}>{t.fees > 0 ? `-$${t.fees}` : '—'}</td>
+                      <td style={{padding:'10px 14px',textAlign:'right',fontWeight:700,color:t.pnl>=0?'var(--blue-bright)':'var(--red)',whiteSpace:'nowrap'}}>
+                        {t.pnl>=0?'+':''}{(t.pnl||0).toFixed(2)}
                       </td>
                     </tr>
                     );
