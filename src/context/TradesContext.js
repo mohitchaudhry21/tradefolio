@@ -250,25 +250,32 @@ export function TradesProvider({ children }) {
       return `ep-${ep}-${sz}`;
     };
 
+    // Entry-only key — matches when one side has exitPrice and other doesn't
+    const priceKeyEntryOnly = t => {
+      if (t.isWithdrawal || t.isDeposit || !t.entryPrice) return null;
+      return `e-${Math.round(parseFloat(t.entryPrice))}-${parseFloat(t.size||0).toFixed(2)}`;
+    };
+
     setTrades(prev => {
       const matchedIds = new Set();
 
       const updated = prev.map(existing => {
-        // 1. positionId match
         let incoming = existing.positionId
           ? normalized.find(t => t.positionId === existing.positionId)
           : null;
 
-        // 2. Price key with date
         if (!incoming) {
           const k = priceKey(existing);
           if (k) incoming = normalized.find(t => priceKey(t) === k && !matchedIds.has(existing.id));
         }
-
-        // 3. Price key WITHOUT date (fallback — handles OCR date mismatch)
         if (!incoming) {
           const k = priceKeyNoDate(existing);
           if (k) incoming = normalized.find(t => priceKeyNoDate(t) === k && !matchedIds.has(existing.id));
+        }
+        // Fallback: match by entry price + size only (handles Excel trades with no exitPrice)
+        if (!incoming) {
+          const k = priceKeyEntryOnly(existing);
+          if (k) incoming = normalized.find(t => priceKeyEntryOnly(t) === k && !matchedIds.has(existing.id));
         }
 
         if (!incoming) return existing;
@@ -294,6 +301,7 @@ export function TradesProvider({ children }) {
       const existingPositionIds  = new Set(prev.map(t => t.positionId).filter(Boolean));
       const existingPriceKeys    = new Set(prev.map(t => priceKey(t)).filter(Boolean));
       const existingPriceKeysND  = new Set(prev.map(t => priceKeyNoDate(t)).filter(Boolean));
+      const existingEntryKeys    = new Set(prev.map(t => priceKeyEntryOnly(t)).filter(Boolean));
 
       const brandNew = normalized.filter(t => {
         if (t.positionId && existingPositionIds.has(t.positionId)) return false;
@@ -301,6 +309,8 @@ export function TradesProvider({ children }) {
         if (k && existingPriceKeys.has(k)) return false;
         const knd = priceKeyNoDate(t);
         if (knd && existingPriceKeysND.has(knd)) return false;
+        const ke = priceKeyEntryOnly(t);
+        if (ke && existingEntryKeys.has(ke)) return false;
         return true;
       });
       const merged = [...brandNew, ...updated];
