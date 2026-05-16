@@ -191,65 +191,66 @@ function parseMT5Text(rawText, brokerOffsetHrs, userOffsetHrs) {
   const trades = [];
 
   // ── PRIORITY 1: Detail popup format ───────────────────────────────────────
-  // Detected by presence of "#XXXXXXX" position ID
-  // Format:
-  //   XAUUSD!R buy 0.5    #6761420
-  //   4688.014 → 4694.5706    327.83
-  //   2026.05.14 09:15:00 → 2026.05.14 10:36:55
-  //   S/L: 4702.323    Charges: -5.00
-  //   T/P: 4718.000
-
   const posIdMatch = rawText.match(/#(\d{5,12})/);
   if (posIdMatch) {
     const positionId = posIdMatch[1];
-    const symMatch   = rawText.match(/([A-Z]+[!.]?[A-Z0-9]*)\s+(buy|sell)\s+([\d.]+)/i);
-    const priceMatch = rawText.match(/([\d]+\.[\d]+)\s*[→\->—–]+\s*([\d]+\.[\d]+)/);
-    const pnlMatch   = rawText.match(/\b([-\d]+\.[\d]{2})\b(?=\s*\n|\s*$|\s*\d{4}[.\-])/m)
-                    || rawText.match(/([-\d]+\.[\d]{2})/);
-    // Two datetimes: entry → exit
-    const allDts     = [...rawText.matchAll(/(\d{4}[.\-]\d{2}[.\-]\d{2}\s+\d{2}:\d{2}(?::\d{2})?)/g)].map(m=>m[1]);
-    const slMatch    = rawText.match(/S\/L[:\s]+([\d.]+)/i);
-    const tpMatch    = rawText.match(/T\/P[:\s]+([\d.]+)/i);
-    const chargeMatch= rawText.match(/[Cc]harges?[:\s]+([-\d.]+)/);
-    const swapMatch  = rawText.match(/[Ss]wap[:\s]+([-\d.]+)/);
+    const symMatch    = rawText.match(/([A-Z]+[!.]?[A-Z0-9]*)\s+(buy|sell)\s+([\d.]+)/i);
 
-    if (symMatch && priceMatch) {
+    // Find ALL price→price pairs in the text
+    const allPricePairs = [...rawText.matchAll(/([\d]{3,}\.[\d]+)\s*[→\->—–]+\s*([\d]{3,}\.[\d]+)/g)];
+
+    // Find the pair closest to (or after) the position ID in the text
+    const posIdIndex = rawText.indexOf('#' + positionId);
+    let bestPair = null;
+    let bestDist = Infinity;
+    allPricePairs.forEach(m => {
+      const dist = Math.abs(m.index - posIdIndex);
+      if (dist < bestDist) { bestDist = dist; bestPair = m; }
+    });
+
+    // Find all datetimes — the popup has TWO: entry → exit
+    const allDts = [...rawText.matchAll(/(\d{4}[.\-]\d{2}[.\-]\d{2}\s+\d{2}:\d{2}(?::\d{2})?)/g)].map(m=>m[1]);
+    // Find the datetime pair closest to posId (the popup datetimes, not list view ones)
+    // The popup datetime line looks like "2026.05.14 09:15:00 → 2026.05.14 10:36:55"
+    const dtPairMatch = rawText.match(/(\d{4}[.\-]\d{2}[.\-]\d{2}\s+\d{2}:\d{2}(?::\d{2})?)\s*[→\->—–]+\s*(\d{4}[.\-]\d{2}[.\-]\d{2}\s+\d{2}:\d{2}(?::\d{2})?)/);
+
+    const slMatch     = rawText.match(/S\/L[:\s]+([\d.]+)/i);
+    const tpMatch     = rawText.match(/T\/P[:\s]+([\d.]+)/i);
+    const chargeMatch = rawText.match(/[Cc]harges?[:\s]+([-\d.]+)/);
+
+    if (symMatch && bestPair) {
       const [,sym,dir,size] = symMatch;
-      const [,ep,xp] = priceMatch;
+      const ep = bestPair[1], xp = bestPair[2];
       const cleanSym = sym.replace(/[!.]R$/i,'').replace(/[!.]$/,'').toUpperCase();
 
-      // First datetime = entry, second = exit (if both present)
-      const dt1 = allDts.length >= 1 ? convertDt(allDts[0]) : { date:'', time:'' };
-      const dt2 = allDts.length >= 2 ? convertDt(allDts[1]) : dt1;
+      const dt1 = dtPairMatch ? convertDt(dtPairMatch[1]) : { date:'', time:'' };
+      const dt2 = dtPairMatch ? convertDt(dtPairMatch[2]) : dt1;
 
-      // Find the main P&L number (the largest standalone decimal in the text, near the prices)
-      let pnl = 0;
+      // P&L: find the largest standalone decimal (not a price >1000, not entry/exit price)
+      const epR = Math.round(parseFloat(ep)), xpR = Math.round(parseFloat(xp));
       const allNumbers = [...rawText.matchAll(/([-]?\d+\.\d{2})\b/g)].map(m=>parseFloat(m[1]));
-      // P&L is usually the biggest absolute value that isn't a price (prices are > 1000 for gold)
-      const candidates = allNumbers.filter(n => Math.abs(n) < 10000 && Math.abs(n) > 0.1 && !(Math.abs(n) > 1000));
-      if (candidates.length) pnl = candidates.reduce((a,b) => Math.abs(b) > Math.abs(a) ? b : a, 0);
-
+      const pnlCandidates = allNumbers.filter(n => Math.abs(n) < 5000 && Math.abs(n) > 0 && Math.round(Math.abs(n)) !== epR && Math.round(Math.abs(n)) !== xpR);
+      const pnl = pnlCandidates.length ? pnlCandidates.reduce((a,b) => Math.abs(b)>Math.abs(a)?b:a, 0) : 0;
       const fees = chargeMatch ? Math.abs(parseFloat(chargeMatch[1])||0) : 0;
-      const swap = swapMatch && swapMatch[1] !== '-' ? parseFloat(swapMatch[1])||0 : 0;
 
       trades.push({
         symbol:     cleanSym,
-        side:       dir.toLowerCase() === 'sell' ? 'Short' : 'Long',
+        side:       dir.toLowerCase()==='sell'?'Short':'Long',
         size:       parseFloat(size)||0,
         entryPrice: parseFloat(ep)||0,
         exitPrice:  parseFloat(xp)||0,
-        entryDate:  dt1.date,  entryTime: dt1.time,
-        exitDate:   dt2.date,  exitTime:  dt2.time,
+        entryDate:  dt1.date, entryTime: dt1.time,
+        exitDate:   dt2.date, exitTime:  dt2.time,
         pnl:        parseFloat(pnl.toFixed(2)),
-        fees:       parseFloat((fees + Math.abs(swap)).toFixed(2)),
-        stopLoss:   slMatch ? parseFloat(slMatch[1]) : null,
-        takeProfit: tpMatch ? parseFloat(tpMatch[1]) : null,
-        status:     pnl > 0.5 ? 'Win' : pnl < -0.5 ? 'Loss' : 'Breakeven',
+        fees,
+        stopLoss:   slMatch?parseFloat(slMatch[1]):null,
+        takeProfit: tpMatch?parseFloat(tpMatch[1]):null,
+        status:     pnl>0.5?'Win':pnl<-0.5?'Loss':'Breakeven',
         source:     'MT5 Screenshot',
-        positionId, // real MT5 position ID — matches Excel imports perfectly
+        positionId, // real MT5 ID — matches Excel perfectly
       });
     }
-    return trades; // detail popup = single trade, stop here
+    return trades;
   }
 
   // ── PRIORITY 2: List view — multiple trades ────────────────────────────────
