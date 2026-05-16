@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useTrades } from '../context/TradesContext';
 import { useToast } from '../context/ToastContext';
 import { v4 as uuidv4 } from 'uuid';
