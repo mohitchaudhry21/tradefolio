@@ -610,7 +610,7 @@ Rules: side=Long for buy, Short for sell. symbol without !R suffix. fees=abs(Cha
 }
 
 export function ImportPage() {
-  const { importTrades, trades, accounts, activeAccountId, undoLastImport } = useTrades();
+  const { importTrades, trades, accounts, activeAccountId, undoLastImport, stats, settings } = useTrades();
   const { showToast } = useToast();
   const [tab,       setTab]       = useState('mt5');
   const [preview,   setPreview]   = useState(null);
@@ -647,7 +647,19 @@ export function ImportPage() {
 
   const reset = () => { setPreview(null); setError(''); setWarnings([]); setSuccess(''); setImportStats(null); };
 
-  // ── Handle MT5 Excel file ──────────────────────────────────────────────
+  // Get commission rate from active account or global settings
+  const commissionRate = useMemo(() => {
+    const acc = accounts.find(a => a.id === importAccountId);
+    return parseFloat(acc?.brokeragePerLot ?? stats?.brokeragePerLot ?? settings?.brokeragePerLot ?? 0);
+  }, [accounts, importAccountId, stats, settings]);
+
+  const calcComm = (t) => {
+    if (t.fees > 0) return t.fees; // already has commission (e.g. from Excel or detail popup)
+    if (commissionRate > 0 && t.size > 0 && !t.isWithdrawal && !t.isDeposit) {
+      return parseFloat((commissionRate * t.size).toFixed(2));
+    }
+    return 0;
+  };
   const handleExcelFile = async (file) => {
     reset(); setLoading(true);
     try {
@@ -704,7 +716,7 @@ export function ImportPage() {
       if (isPosMatch || isPriceMatch) duplicates++; else added++;
     });
 
-    importTrades(preview, null, chosenAccountId);
+    importTrades(preview.map(t => isDuplicate(t) ? t : { ...t, fees: calcComm(t) }), null, chosenAccountId);
     const accLabel = chosenAccount ? `→ ${chosenAccount.name}` : '(no account assigned)';
     setImportStats({ added, duplicates, total: preview.length });
     setHasUndo(true);
@@ -910,7 +922,7 @@ export function ImportPage() {
 
         {/* ── Preview ───────────────────────────────────────────────────── */}
         {preview && preview.length > 0 && (
-          <div style={{ marginTop:14, background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:10, overflow:'hidden', margin:'14px -28px 0 -28px' }}>
+          <div style={{ marginTop:14, background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:10, overflow:'hidden', marginLeft:-28, marginRight:-28, width:'calc(100vw - 220px - 1px)' }}>
             {/* Account confirmation reminder */}
             <div style={{ padding:'8px 18px', borderBottom:'1px solid var(--border)', background: importAccountId ? 'rgba(59,130,246,.06)' : 'rgba(239,68,68,.06)', display:'flex', alignItems:'center', gap:8 }}>
               {importAccountId
@@ -941,34 +953,49 @@ export function ImportPage() {
             </div>
 
             <div style={{ overflowX:'auto', overflowY:'auto', maxHeight:'60vh' }}>
-              <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+              <table style={{width:'100%',borderCollapse:'collapse',fontSize:12,tableLayout:'fixed'}}>
+                <colgroup>
+                  <col style={{width:'12%'}}/><col style={{width:'7%'}}/><col style={{width:'8%'}}/>
+                  <col style={{width:'11%'}}/><col style={{width:'12%'}}/><col style={{width:'12%'}}/>
+                  <col style={{width:'6%'}}/><col style={{width:'10%'}}/><col style={{width:'10%'}}/>
+                </colgroup>
                 <thead style={{position:'sticky',top:0,background:'var(--bg-card)',zIndex:1}}>
                   <tr style={{borderBottom:'2px solid var(--border)'}}>
-                    {['Symbol','Side','Status','Date','Entry','Exit','Size','Comm','P&L'].map(h=>(
-                      <th key={h} style={{padding:'8px 10px',textAlign:['Entry','Exit','Size','Comm','P&L'].includes(h)?'right':'left',fontSize:10,fontWeight:700,color:'var(--text-muted)',letterSpacing:'.4px',whiteSpace:'nowrap'}}>{h}</th>
-                    ))}
+                    <th style={{padding:'8px 12px',textAlign:'left',fontSize:10,fontWeight:700,color:'var(--text-muted)'}}>SYMBOL</th>
+                    <th style={{padding:'8px 6px',textAlign:'left',fontSize:10,fontWeight:700,color:'var(--text-muted)'}}>SIDE</th>
+                    <th style={{padding:'8px 6px',textAlign:'left',fontSize:10,fontWeight:700,color:'var(--text-muted)'}}>STATUS</th>
+                    <th style={{padding:'8px 6px',textAlign:'left',fontSize:10,fontWeight:700,color:'var(--text-muted)'}}>DATE</th>
+                    <th style={{padding:'8px 6px',textAlign:'right',fontSize:10,fontWeight:700,color:'var(--text-muted)'}}>ENTRY</th>
+                    <th style={{padding:'8px 6px',textAlign:'right',fontSize:10,fontWeight:700,color:'var(--text-muted)'}}>EXIT</th>
+                    <th style={{padding:'8px 6px',textAlign:'right',fontSize:10,fontWeight:700,color:'var(--text-muted)'}}>SIZE</th>
+                    <th style={{padding:'8px 6px',textAlign:'right',fontSize:10,fontWeight:700,color:'var(--text-muted)'}}>
+                      COMM {commissionRate>0&&<span style={{color:'var(--blue-bright)',fontSize:9}}>auto</span>}
+                    </th>
+                    <th style={{padding:'8px 12px',textAlign:'right',fontSize:10,fontWeight:700,color:'var(--text-muted)'}}>P&L</th>
                   </tr>
                 </thead>
                 <tbody>
                   {preview.map((t,i) => {
                     const dup = isDuplicate(t);
                     return (
-                    <tr key={i} style={{borderBottom:'1px solid var(--border)', opacity: dup ? 0.45 : 1, background: dup ? 'rgba(245,158,11,.04)' : ''}}
+                    <tr key={i} style={{borderBottom:'1px solid var(--border)', opacity: dup?0.45:1, background: dup?'rgba(245,158,11,.04)':''}}
                       onMouseEnter={e=>e.currentTarget.style.background=dup?'rgba(245,158,11,.08)':'var(--bg-hover)'}
                       onMouseLeave={e=>e.currentTarget.style.background=dup?'rgba(245,158,11,.04)':''}>
-                      <td style={{padding:'8px 10px',fontWeight:700,whiteSpace:'nowrap'}}>
+                      <td style={{padding:'8px 12px',fontWeight:700,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
                         {t.symbol}
-                        {dup && <span style={{marginLeft:5,fontSize:9,background:'rgba(245,158,11,.2)',color:'#f59e0b',borderRadius:4,padding:'1px 5px',fontWeight:700}}>DUP</span>}
+                        {dup&&<span style={{marginLeft:5,fontSize:9,background:'rgba(245,158,11,.2)',color:'#f59e0b',borderRadius:4,padding:'1px 5px',fontWeight:700}}>DUP</span>}
                       </td>
-                      <td style={{padding:'8px 10px'}}><span className={`badge badge-${t.side.toLowerCase()}`}>{t.side}</span></td>
-                      <td style={{padding:'8px 10px'}}><span className={`badge badge-${t.status==='Win'?'win':t.status==='Loss'?'loss':'be'}`}>{t.status}</span></td>
-                      <td style={{padding:'8px 10px',color:'var(--text-secondary)',whiteSpace:'nowrap'}}>{t.entryDate} <span style={{color:'var(--text-muted)',fontSize:10}}>{t.entryTime}</span></td>
-                      <td style={{padding:'8px 10px',textAlign:'right',fontFamily:'monospace'}}>{t.entryPrice}</td>
-                      <td style={{padding:'8px 10px',textAlign:'right',fontFamily:'monospace'}}>{t.exitPrice||'—'}</td>
-                      <td style={{padding:'8px 10px',textAlign:'right',color:'var(--text-secondary)'}}>{t.size}</td>
-                      <td style={{padding:'8px 10px',textAlign:'right',color:'var(--red)'}}>{t.fees>0?`-$${t.fees}`:'—'}</td>
-                      <td style={{padding:'8px 10px',textAlign:'right',fontWeight:700,color:t.pnl>=0?'var(--blue-bright)':'var(--red)',whiteSpace:'nowrap'}}>
-                        {t.pnl>=0?'+':''}{(t.pnl||0).toFixed(2)}
+                      <td style={{padding:'8px 6px'}}><span className={`badge badge-${(t.side||'long').toLowerCase()}`}>{t.side}</span></td>
+                      <td style={{padding:'8px 6px'}}><span className={`badge badge-${t.status==='Win'?'win':t.status==='Loss'?'loss':'be'}`}>{t.status}</span></td>
+                      <td style={{padding:'8px 6px',color:'var(--text-secondary)',fontSize:11,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.entryDate}</td>
+                      <td style={{padding:'8px 6px',textAlign:'right',fontFamily:'monospace',fontSize:11}}>{t.entryPrice}</td>
+                      <td style={{padding:'8px 6px',textAlign:'right',fontFamily:'monospace',fontSize:11}}>{t.exitPrice||'—'}</td>
+                      <td style={{padding:'8px 6px',textAlign:'right',color:'var(--text-secondary)',fontSize:11}}>{t.size}</td>
+                      <td style={{padding:'8px 6px',textAlign:'right',fontSize:11,color:'var(--red)',whiteSpace:'nowrap'}}>
+                        {(() => { const c=calcComm(t); return c>0?`-$${c.toFixed(2)}`:'—'; })()}
+                      </td>
+                      <td style={{padding:'8px 12px',textAlign:'right',fontWeight:800,fontSize:13,color:(t.pnl||0)>=0?'var(--blue-bright)':'var(--red)',whiteSpace:'nowrap'}}>
+                        {(t.pnl||0)>=0?'+':''}{(t.pnl||0).toFixed(2)}
                       </td>
                     </tr>
                     );
@@ -976,11 +1003,6 @@ export function ImportPage() {
                 </tbody>
               </table>
             </div>
-            {preview.length > 20 && (
-              <div style={{ padding:'10px 18px', color:'var(--text-muted)', fontSize:12, borderTop:'1px solid var(--border)' }}>
-                ... and {preview.length - 20} more trades
-              </div>
-            )}
           </div>
         )}
 
