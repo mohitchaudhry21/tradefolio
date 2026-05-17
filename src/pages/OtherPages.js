@@ -708,12 +708,7 @@ export function ImportPage() {
 
     let duplicates = 0, added = 0;
     preview.forEach(t => {
-      const isPosMatch = t.positionId && existingPosIds.has(t.positionId);
-      const k = t.isWithdrawal||t.isDeposit
-        ? `wd-${Math.round(Math.abs(t.pnl||0))}-${t.exitDate||t.entryDate||''}`
-        : t.entryPrice ? `${Math.round(parseFloat(t.entryPrice))}-${parseFloat(t.size||0).toFixed(2)}-${t.exitDate||t.entryDate||''}` : null;
-      const isPriceMatch = k && existingKeys.has(k);
-      if (isPosMatch || isPriceMatch) duplicates++; else added++;
+      if (isDuplicate(t)) duplicates++; else added++;
     });
 
     importTrades(preview.map(t => isDuplicate(t) ? t : { ...t, fees: calcComm(t) }), null, chosenAccountId);
@@ -732,17 +727,33 @@ export function ImportPage() {
   const isDuplicate = (t) => {
     const existingPosIds = new Set(trades.map(x=>x.positionId).filter(Boolean));
     if (t.positionId && existingPosIds.has(t.positionId)) return true;
+
+    // Get dates to check including ±1 day for timezone shifts
+    const baseDate = t.exitDate || t.entryDate || '';
+    const datesToCheck = [baseDate];
+    if (baseDate) {
+      const d = new Date(baseDate + 'T12:00:00Z');
+      const prev = new Date(d); prev.setDate(d.getDate()-1);
+      const next = new Date(d); next.setDate(d.getDate()+1);
+      datesToCheck.push(prev.toISOString().slice(0,10), next.toISOString().slice(0,10));
+    }
+
     if (t.isWithdrawal || t.isDeposit) {
-      const d = t.exitDate||t.entryDate||'';
       const amt = Math.round(Math.abs(t.pnl||0));
-      return trades.some(x=>(x.isWithdrawal||x.isDeposit) && Math.round(Math.abs(x.pnl||0))===amt && (x.exitDate||x.entryDate||'')===d);
+      return trades.some(x => (x.isWithdrawal||x.isDeposit) &&
+        Math.round(Math.abs(x.pnl||0)) === amt &&
+        datesToCheck.includes(x.exitDate||x.entryDate||''));
     }
     if (!t.entryPrice) return false;
-    const key = `${Math.round(parseFloat(t.entryPrice))}-${parseFloat(t.size||0).toFixed(2)}-${t.exitDate||t.entryDate||''}`;
+    const ep = Math.round(parseFloat(t.entryPrice));
+    const sz = parseFloat(t.size||0).toFixed(2);
     return trades.some(x => {
       if (!x.entryPrice) return false;
-      const xk = `${Math.round(parseFloat(x.entryPrice))}-${parseFloat(x.size||0).toFixed(2)}-${x.exitDate||x.entryDate||''}`;
-      return xk === key;
+      const xep = Math.round(parseFloat(x.entryPrice));
+      const xsz = parseFloat(x.size||0).toFixed(2);
+      if (xep !== ep || xsz !== sz) return false;
+      const xd = x.exitDate || x.entryDate || '';
+      return datesToCheck.includes(xd);
     });
   };
   const exportAll = () => {
