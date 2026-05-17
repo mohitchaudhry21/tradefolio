@@ -230,20 +230,38 @@ export function TradesProvider({ children }) {
       'notes','setup','emotion','tags','mistakes','rMultiple','status','timeframe',
     ];
 
-    // Dedup key: entryPrice (rounded) + size + date — reliable across Excel/screenshot/OCR variations
-    const tradeKey = t => {
+    // Dedup key: entryPrice (rounded) + size + date
+    // For list-view screenshot trades, exitDate IS the exit date shown in MT5
+    // For Excel trades, exitDate is the close date from the Excel file
+    // Both sides use exitDate preferentially so they match
+    const tradeKey = (t, dateOverride) => {
       if (t.isWithdrawal || t.isDeposit) {
-        const d = t.exitDate || t.entryDate || '';
+        const d = dateOverride || t.exitDate || t.entryDate || '';
         return `wd-${Math.round(Math.abs(t.pnl||0))}-${d}`;
       }
       if (!t.entryPrice) return null;
-      const d = t.exitDate || t.entryDate || '';
+      // Always prefer exitDate — list view only has exit date, Excel has both
+      const d = dateOverride || t.exitDate || t.entryDate || '';
       return `${Math.round(parseFloat(t.entryPrice))}-${parseFloat(t.size||0).toFixed(2)}-${d}`;
+    };
+
+    // Get adjacent dates (±1 day) to handle timezone-shifted dates
+    const adjacentDates = (dateStr) => {
+      if (!dateStr) return [dateStr];
+      const d = new Date(dateStr + 'T12:00:00Z');
+      const prev = new Date(d); prev.setDate(d.getDate() - 1);
+      const next = new Date(d); next.setDate(d.getDate() + 1);
+      return [dateStr, prev.toISOString().slice(0,10), next.toISOString().slice(0,10)];
+    };
+
+    const tradeKeys = (t) => {
+      const baseDate = t.exitDate || t.entryDate || '';
+      return adjacentDates(baseDate).map(d => tradeKey(t, d)).filter(Boolean);
     };
 
     setTrades(prev => {
       const matchedIds    = new Set();
-      const existingKeys  = new Set(prev.map(t => tradeKey(t)).filter(Boolean));
+      const existingKeySet = new Set(prev.flatMap(t => tradeKeys(t)));
       const existingPosIds = new Set(prev.map(t => t.positionId).filter(Boolean));
 
       const updated = prev.map(existing => {
@@ -252,10 +270,13 @@ export function TradesProvider({ children }) {
           ? normalized.find(t => t.positionId === existing.positionId)
           : null;
 
-        // 2. tradeKey match (entry price + size + date)
+        // 2. tradeKey match with ±1 day tolerance
         if (!incoming) {
-          const k = tradeKey(existing);
-          if (k) incoming = normalized.find(t => tradeKey(t) === k && !matchedIds.has(existing.id));
+          const existingKeys = tradeKeys(existing);
+          incoming = normalized.find(t =>
+            !matchedIds.has(existing.id) &&
+            tradeKeys(t).some(k => existingKeys.includes(k))
+          );
         }
 
         if (!incoming) return existing;
@@ -280,9 +301,7 @@ export function TradesProvider({ children }) {
 
       const brandNew = normalized.filter(t => {
         if (t.positionId && existingPosIds.has(t.positionId)) return false;
-        const k = tradeKey(t);
-        if (k && existingKeys.has(k)) return false;
-        return true;
+        return !tradeKeys(t).some(k => existingKeySet.has(k));
       });
       const merged = [...brandNew, ...updated];
 
