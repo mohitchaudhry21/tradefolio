@@ -5,6 +5,16 @@ import { useTrades } from '../context/TradesContext';
 const fmt  = n => `${n>=0?'+':'-'}$${Math.abs(n).toFixed(2)}`;
 const fmtK = n => Math.abs(n)>=1000 ? `${n<0?'-':''}$${(Math.abs(n)/1000).toFixed(1)}k` : fmt(n);
 
+// "2026-02-04" or "02-04" → "Feb 4"
+function fmtAxisDate(d) {
+  if (!d) return '';
+  const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const p = d.split('-');
+  if (p.length === 3) return M[parseInt(p[1],10)-1] + ' ' + parseInt(p[2],10);
+  if (p.length === 2) return M[parseInt(p[0],10)-1] + ' ' + parseInt(p[1],10);
+  return d;
+}
+
 const PERIODS = ['Settings Range','Today','7 Days','30 Days','3 Months','1 Year','All Time','Custom'];
 const FTYPES  = ['All Trades','Winners','Losers'];
 
@@ -29,11 +39,12 @@ function getSession(time) {
 }
 
 export default function Analytics() {
-  const { trades, stats } = useTrades();
+  const { trades, stats, getJournal } = useTrades();
   const [period,    setPeriod]    = useState('Settings Range');
   const [ftype,     setFtype]     = useState('All Trades');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo,   setCustomTo]   = useState('');
+  const [ecMode,     setEcMode]     = useState('equity');
 
   // Base: exclude withdrawals always
   const baseTrades = useMemo(() => trades.filter(t => {
@@ -103,8 +114,21 @@ export default function Analytics() {
     let peak=0,cum2=0,maxDD=0;
     sorted.forEach(t=>{cum2+=(t.pnl||0);peak=Math.max(peak,cum2);maxDD=Math.max(maxDD,peak-cum2);});
 
-    // RR avg
-    const avgRR = filteredTrades.length ? filteredTrades.reduce((s,t)=>s+(t.rMultiple||0),0)/filteredTrades.length : 0;
+    // RR avg — checks rMultiple, then journal rr, then auto-calc from SL/TP
+    const rrVals = filteredTrades.map(t => {
+      if (t.rMultiple && Math.abs(t.rMultiple) > 0) return Math.abs(t.rMultiple);
+      const j = typeof getJournal === 'function' ? (getJournal(t.id) || {}) : {};
+      if (j.rr && parseFloat(j.rr) > 0) return parseFloat(j.rr);
+      const entry = t.entryPrice || 0;
+      const sl  = parseFloat(j.sl  || t.stopLoss   || 0);
+      const tp  = parseFloat(j.tp  || t.takeProfit || 0);
+      if (entry && sl && tp) {
+        const risk = Math.abs(entry - sl), reward = Math.abs(tp - entry);
+        if (risk > 0) return reward / risk;
+      }
+      return null;
+    }).filter(v => v !== null);
+    const avgRR = rrVals.length ? rrVals.reduce((s,v)=>s+v,0)/rrVals.length : 0;
 
     return {totalPnl,totalComm,wins:wins.length,losses:losses.length,breakeven:filteredTrades.length-wlOnly.length,total:wlOnly.length,totalAll:filteredTrades.length,wr,pf,exp,avgW,avgL,best,worst,maxWs,maxLs,maxDD,avgRR,gp,gl};
   }, [filteredTrades]);
@@ -113,7 +137,17 @@ export default function Analytics() {
   const equityCurve = useMemo(()=>{
     const sorted=[...filteredTrades].filter(t=>t.entryDate).sort((a,b)=>(a.entryDate||'').localeCompare(b.entryDate||''));
     let cum=0;
-    return sorted.map(t=>{cum+=(t.pnl||0);return{date:(t.entryDate||'').slice(5),pnl:parseFloat(cum.toFixed(2))};});
+    return sorted.map(t=>{cum+=(t.pnl||0);return{date:fmtAxisDate(t.entryDate||''),pnl:parseFloat(cum.toFixed(2))};});
+  },[filteredTrades]);
+
+  // Drawdown curve — how far below the running peak at each point
+  const drawdownCurve = useMemo(()=>{
+    const sorted=[...filteredTrades].filter(t=>t.entryDate).sort((a,b)=>(a.entryDate||'').localeCompare(b.entryDate||''));
+    let cum=0,peak=0;
+    return sorted.map(t=>{
+      cum+=(t.pnl||0); peak=Math.max(peak,cum);
+      return{date:fmtAxisDate(t.entryDate||''),dd:-(parseFloat((peak-cum).toFixed(2)))};
+    });
   },[filteredTrades]);
 
   // Day performance
@@ -325,7 +359,7 @@ export default function Analytics() {
               <div className="qs-item"><div className="qs-label">WORST TRADE</div><div className="qs-val neg">{fmtK(fs.worst)}</div></div>
               <div className="qs-item"><div className="qs-label">WIN STREAK</div><div className="qs-val neu">{fs.maxWs} trades</div></div>
               <div className="qs-item"><div className="qs-label">LOSS STREAK</div><div className="qs-val neu">{fs.maxLs} trades</div></div>
-              <div className="qs-item"><div className="qs-label">RISK:REWARD</div><div className="qs-val neu">1:{fs.avgRR>=0?fs.avgRR.toFixed(2):'0.00'}</div></div>
+              <div className="qs-item"><div className="qs-label">RISK:REWARD</div><div className="qs-val neu">{fs.avgRR > 0 ? `1:${fs.avgRR.toFixed(2)}` : '—'}</div></div>
               <div className="qs-item"><div className="qs-label">OPEN TRADES</div><div className="qs-val neu">0</div></div>
             </div>
           </div>
@@ -338,23 +372,23 @@ export default function Analytics() {
                 <div style={{fontSize:11,color:'var(--text-muted)'}}>Cumulative P&L progression</div>
               </div>
               <div className="time-filters">
-                <button className="tf-btn active">Equity</button>
-                <button className="tf-btn">Drawdown</button>
+                <button className={`tf-btn${ecMode==='equity'?' active':''}`} onClick={()=>setEcMode('equity')}>Equity</button>
+                <button className={`tf-btn${ecMode==='drawdown'?' active':''}`} onClick={()=>setEcMode('drawdown')}>Drawdown</button>
               </div>
             </div>
             <ResponsiveContainer width="100%" height={200}>
-              <AreaChart data={equityCurve} margin={{top:5,right:0,left:0,bottom:0}}>
+              <AreaChart data={ecMode==='equity'?equityCurve:drawdownCurve} margin={{top:5,right:0,left:0,bottom:0}}>
                 <defs>
                   <linearGradient id="eg" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor="#3b82f6" stopOpacity={0.25}/>
-                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                    <stop offset="5%"  stopColor={ecMode==='equity'?'#3b82f6':'#ef4444'} stopOpacity={0.25}/>
+                    <stop offset="95%" stopColor={ecMode==='equity'?'#3b82f6':'#ef4444'} stopOpacity={0}/>
                   </linearGradient>
                 </defs>
-                <XAxis dataKey="date" tick={{fill:'var(--text-muted)',fontSize:10}} tickLine={false} axisLine={false}/>
+                <XAxis dataKey="date" tick={{fill:'var(--text-muted)',fontSize:10}} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={50}/>
                 <YAxis tick={{fill:'var(--text-muted)',fontSize:10}} tickLine={false} axisLine={false} tickFormatter={v=>`$${v}`}/>
                 <Tooltip content={<TIP/>}/>
                 <ReferenceLine y={0} stroke="var(--border-light)" strokeDasharray="3 3"/>
-                <Area type="monotone" dataKey="pnl" stroke="#3b82f6" strokeWidth={2} fill="url(#eg)" dot={false}/>
+                <Area type="monotone" dataKey={ecMode==='equity'?'pnl':'dd'} stroke={ecMode==='equity'?'#3b82f6':'#ef4444'} strokeWidth={2} fill="url(#eg)" dot={false}/>
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -641,5 +675,3 @@ export default function Analytics() {
     </div>
   );
 }
-
-
