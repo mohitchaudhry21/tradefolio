@@ -193,61 +193,60 @@ function parseMT5Text(rawText, brokerOffsetHrs, userOffsetHrs) {
   const posIdMatch = rawText.match(/#(\d{5,12})/);
   if (posIdMatch) {
     const positionId = posIdMatch[1];
+    const lines = rawText.split('\n').map(l => l.trim());
 
-    // Find symbol/direction/size from the line CONTAINING the position ID
-    // This avoids picking up size from list view trades behind the popup
-    const posIdLineIdx = rawText.split('\n').findIndex(l => l.includes('#' + positionId));
-    const nearLines = rawText.split('\n').slice(Math.max(0, posIdLineIdx - 2), posIdLineIdx + 3).join(' ');
-    const symMatch = nearLines.match(/([A-Z]+[!.]?[A-Z0-9]*)\s+(buy|sell)\s+([\d.]+)/i)
+    // Find the line containing the position ID — it has "SYMBOL buy/sell SIZE #ID"
+    const posIdLineIdx = lines.findIndex(l => l.includes('#' + positionId));
+    const posIdLine    = posIdLineIdx >= 0 ? lines[posIdLineIdx] : '';
+    
+    // Extract symbol/direction/size from the position ID line
+    const symMatch = posIdLine.match(/([A-Z]+[!.]?[A-Z0-9]*)\s+(buy|sell)\s+([\d.]+)/i)
                   || rawText.match(/([A-Z]+[!.]?[A-Z0-9]*)\s+(buy|sell)\s+([\d.]+)/i);
 
-    // Find ALL price→price pairs (both numbers must be > 100 to avoid date fragments)
-    const allPricePairs = [...rawText.matchAll(/([\d]{3,}\.[\d]+)\s*[→\->—–]+\s*([\d]{3,}\.[\d]+)/g)];
-    const posIdIndex = rawText.indexOf('#' + positionId);
-    let bestPair = null, bestDist = Infinity;
-    allPricePairs.forEach(m => {
-      const dist = Math.abs(m.index - posIdIndex);
-      if (dist < bestDist) { bestDist = dist; bestPair = m; }
-    });
+    // Find the price line: "ENTRY → EXIT    PNL"
+    // This is the line with two large numbers separated by an arrow, followed by the P&L
+    let bestPairLine = null, ep = null, xp = null, pnl = 0;
+    for (const line of lines) {
+      const m = line.match(/([\d]{3,}\.[\d]+)\s*[→\->—–]+\s*([\d]{3,}\.[\d]+)\s+([-]?[\d]+\.[\d]{2})\b/);
+      if (m) {
+        bestPairLine = line;
+        ep = m[1]; xp = m[2];
+        pnl = parseFloat(m[3]);
+        break;
+      }
+    }
+    // Fallback: find price pair without P&L on same line
+    if (!ep) {
+      for (const line of lines) {
+        const m = line.match(/([\d]{3,}\.[\d]+)\s*[→\->—–]+\s*([\d]{3,}\.[\d]+)/);
+        if (m) { ep = m[1]; xp = m[2]; break; }
+      }
+    }
+    // Fallback P&L: find standalone number not matching prices, not a date/year
+    if (!pnl && ep && xp) {
+      const epR = Math.round(parseFloat(ep)), xpR = Math.round(parseFloat(xp));
+      for (const line of lines) {
+        const nums = [...line.matchAll(/([-]?\d+\.\d{2})\b/g)].map(m=>parseFloat(m[1]));
+        for (const n of nums) {
+          const abs = Math.abs(n);
+          if (abs > 0.01 && abs < 1000 && Math.round(abs) !== epR && Math.round(abs) !== xpR) {
+            if (Math.abs(n) > Math.abs(pnl)) pnl = n;
+          }
+        }
+      }
+    }
 
-    // Find entry→exit datetime pair (two datetimes separated by arrow)
+    // Entry→Exit datetime pair
     const dtPairMatch = rawText.match(/(\d{4}[.\-]\d{2}[.\-]\d{2}\s+\d{2}:\d{2}(?::\d{2})?)\s*[→\->—–]+\s*(\d{4}[.\-]\d{2}[.\-]\d{2}\s+\d{2}:\d{2}(?::\d{2})?)/);
-
     const slMatch     = rawText.match(/S\/L[:\s]+([\d.]+)/i);
     const tpMatch     = rawText.match(/T\/P[:\s]+([\d.]+)/i);
     const chargeMatch = rawText.match(/[Cc]harges?[:\s]+([-\d.]+)/);
 
-    if (symMatch && bestPair) {
+    if (symMatch && ep) {
       const [,sym,dir,size] = symMatch;
-      const [,ep,xp] = bestPair;
       const cleanSym = sym.replace(/[!.]R$/i,'').replace(/[!.]$/,'').toUpperCase();
-
       const dt1 = dtPairMatch ? convertDt(dtPairMatch[1]) : { date:'', time:'' };
       const dt2 = dtPairMatch ? convertDt(dtPairMatch[2]) : dt1;
-
-      // Find P&L: look on the SAME LINE as the price pair first
-      const priceLineMatch = rawText.split('\n').find(l => l.includes(ep) && l.includes(xp));
-      let pnl = 0;
-      if (priceLineMatch) {
-        // Remove the price pair and arrow from the line, find remaining numbers
-        const remaining = priceLineMatch.replace(ep,'').replace(xp,'').replace(/[→\->—–]+/,'');
-        const numMatch = remaining.match(/([-]?\d+\.\d{2})\b/);
-        if (numMatch) pnl = parseFloat(numMatch[1]);
-      }
-      // Fallback: search full text but exclude date-like values (e.g. 2026.05)
-      if (!pnl) {
-        const epR = Math.round(parseFloat(ep)), xpR = Math.round(parseFloat(xp));
-        const allNumbers = [...rawText.matchAll(/([-]?\d+\.\d{2})\b/g)].map(m=>parseFloat(m[1]));
-        // Exclude: prices (>1000), date fragments (year ~2026), small noise (<0.01)
-        const candidates = allNumbers.filter(n => {
-          const abs = Math.abs(n);
-          return abs > 0.01 && abs < 1000 &&
-            Math.round(abs) !== epR && Math.round(abs) !== xpR &&
-            !(n > 2000 && n < 2100); // exclude year-like values e.g. 2026.05
-        });
-        if (candidates.length) pnl = candidates.reduce((a,b) => Math.abs(b)>Math.abs(a)?b:a, 0);
-      }
-
       const fees = chargeMatch ? Math.abs(parseFloat(chargeMatch[1])||0) : 0;
 
       trades.push({
