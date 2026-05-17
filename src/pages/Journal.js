@@ -323,20 +323,20 @@ export default function Journal() {
         {/* Tabs — fixed inside left panel */}
           <div style={{ display:'flex', gap:5, padding:'8px 10px', borderBottom:'1px solid var(--border)', flexShrink:0, background:'var(--bg-card)' }}>
             {[
-              ['all',      'All',      trades.length,                      'var(--text-secondary)', 'rgba(255,255,255,.06)'],
-              ['journaled','Journaled',journaledIds.length,                 '#4ade80',               'rgba(74,222,128,.12)'],
-              ['pending',  'Pending',  trades.length-journaledIds.length,  '#f59e0b',               'rgba(245,158,11,.12)'],
+              ['all',      'All',       trades.length,                      'var(--text-secondary)', 'rgba(255,255,255,.06)'],
+              ['journaled','Journaled', journaledIds.length,                 '#4ade80',               'rgba(74,222,128,.12)'],
+              ['pending',  'Pending',   trades.length-journaledIds.length,  '#f59e0b',               'rgba(245,158,11,.12)'],
             ].map(([k,l,c,ac,abg]) => (
               <button key={k} onClick={() => setTab(k)} style={{
-                flex:1, padding:'6px 4px', borderRadius:7, fontSize:11, fontWeight:700,
+                flex:1, padding:'6px 6px', borderRadius:7, fontSize:11, fontWeight:700,
                 cursor:'pointer', fontFamily:'var(--font)', whiteSpace:'nowrap',
                 border: tab===k ? `1px solid ${ac}` : '1px solid transparent',
                 background: tab===k ? abg : 'transparent',
                 color: tab===k ? ac : 'var(--text-muted)',
                 display:'flex', gap:4, alignItems:'center', justifyContent:'center',
-                transition:'all .12s', minWidth:0, overflow:'hidden',
+                transition:'all .12s',
               }}>
-                <span style={{overflow:'hidden',textOverflow:'ellipsis'}}>{l}</span>
+                <span>{l}</span>
                 <span style={{
                   background: tab===k ? ac : 'rgba(255,255,255,.1)',
                   color: tab===k ? '#000' : 'var(--text-muted)',
@@ -346,6 +346,24 @@ export default function Journal() {
               </button>
             ))}
           </div>
+
+          {/* Completion summary */}
+          {trades.length > 0 && (() => {
+            const total = trades.filter(t => !t.isWithdrawal).length;
+            const done  = journaledIds.length;
+            const pct   = total > 0 ? Math.round((done/total)*100) : 0;
+            return (
+              <div style={{ padding:'6px 10px', borderBottom:'1px solid var(--border)', background:'var(--bg-card)', flexShrink:0 }}>
+                <div style={{ display:'flex', justifyContent:'space-between', fontSize:10, color:'var(--text-muted)', marginBottom:4 }}>
+                  <span>{done} of {total} journaled</span>
+                  <span style={{ fontWeight:700, color: pct>=80?'#4ade80':pct>=40?'#f59e0b':'var(--text-muted)' }}>{pct}%</span>
+                </div>
+                <div style={{ height:3, background:'var(--bg-hover)', borderRadius:2, overflow:'hidden' }}>
+                  <div style={{ height:'100%', width:`${pct}%`, background: pct>=80?'#4ade80':pct>=40?'#f59e0b':'var(--text-muted)', borderRadius:2, transition:'width .3s' }}/>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Trade cards — scrollable */}
           <div style={{ flex: 1, overflowY: 'auto', padding: '10px 10px' }}>
