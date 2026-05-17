@@ -747,13 +747,15 @@ export function ImportPage() {
     if (!t.entryPrice) return false;
     const ep = Math.round(parseFloat(t.entryPrice));
     const sz = parseFloat(t.size||0).toFixed(2);
+    const ndKey = `nd-${ep}-${sz}`;
     return trades.some(x => {
       if (!x.entryPrice) return false;
       const xep = Math.round(parseFloat(x.entryPrice));
       const xsz = parseFloat(x.size||0).toFixed(2);
       if (xep !== ep || xsz !== sz) return false;
+      // Match by date ±1 day OR by price+size alone (fallback for timezone mismatches)
       const xd = x.exitDate || x.entryDate || '';
-      return datesToCheck.includes(xd);
+      return datesToCheck.includes(xd) || `nd-${xep}-${xsz}` === ndKey;
     });
   };
   const exportAll = () => {
