@@ -30,6 +30,61 @@
   --font: 'Inter', sans-serif;
 }
 
+/* ── Light mode ────────────────────────────────────────────────── */
+[data-theme="light"] {
+  --bg-base:     #f0f4f8;
+  --bg-primary:  #ffffff;
+  --bg-card:     #ffffff;
+  --bg-card2:    #f8fafc;
+  --bg-hover:    #f1f5f9;
+  --bg-input:    #f8fafc;
+  --border:      #e2e8f0;
+  --border-light:#cbd5e1;
+  --blue:        #2563eb;
+  --blue-bright: #1d4ed8;
+  --blue-dim:    rgba(37,99,235,0.1);
+  --blue-glow:   rgba(37,99,235,0.2);
+  --red:         #dc2626;
+  --red-dim:     rgba(220,38,38,0.1);
+  --green:       #16a34a;
+  --green-dim:   rgba(22,163,74,0.1);
+  --yellow:      #d97706;
+  --yellow-dim:  rgba(217,119,6,0.1);
+  --purple:      #7c3aed;
+  --text-primary:   #0f172a;
+  --text-secondary: #475569;
+  --text-muted:     #94a3b8;
+  --shadow:    0 4px 24px rgba(0,0,0,0.1);
+}
+[data-theme="light"] body { background: var(--bg-base); }
+[data-theme="light"] ::-webkit-scrollbar-track { background: #e2e8f0; }
+[data-theme="light"] ::-webkit-scrollbar-thumb { background: #94a3b8; }
+[data-theme="light"] .pos { color: #1d4ed8; }
+[data-theme="light"] .neg { color: #dc2626; }
+[data-theme="light"] select.form-control option { background: #fff; color: #0f172a; }
+
+/* Theme toggle button */
+.theme-toggle {
+  display:flex;align-items:center;justify-content:space-between;
+  width:100%;padding:7px 12px;margin-bottom:8px;
+  background:var(--bg-hover);border:1px solid var(--border);
+  border-radius:7px;cursor:pointer;font-size:12px;
+  color:var(--text-secondary);font-family:var(--font);
+  transition:all .14s;
+}
+.theme-toggle:hover { color:var(--text-primary); border-color:var(--border-light); }
+.theme-toggle-track {
+  width:32px;height:18px;border-radius:9px;
+  background:var(--border-light);position:relative;transition:background .2s;
+}
+.theme-toggle-track.on { background:var(--blue); }
+.theme-toggle-thumb {
+  position:absolute;top:2px;left:2px;
+  width:14px;height:14px;border-radius:50%;
+  background:#fff;transition:transform .2s;box-shadow:0 1px 3px rgba(0,0,0,.3);
+}
+.theme-toggle-track.on .theme-toggle-thumb { transform:translateX(14px); }
+
 *{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:var(--font);background:var(--bg-base);color:var(--text-primary);font-size:13.5px;line-height:1.5;}
 ::-webkit-scrollbar{width:5px;height:5px;}
