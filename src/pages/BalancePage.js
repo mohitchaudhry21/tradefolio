@@ -131,14 +131,17 @@ export default function BalancePage() {
       const actualWithdraw    = w.profitWithdrawals;
       const didWithdraw       = splitDue && actualWithdraw > 0;
 
-      // New threshold — only updates when they actually logged a profit withdrawal
+      // Threshold advances based on the split formula whenever above threshold.
+      // If an actual profit withdrawal is logged, use that amount for keep/threshold.
+      // If not logged yet, use the formula (suggestedKeep) so the % change is reflected immediately.
       let newThreshold = threshold;
       let newTradeOnlyBal = tradeOnlyBal;
-      if (didWithdraw) {
-        // Keep = above-threshold amount minus what they actually took out
-        const actualKeep = parseFloat((aboveThresh - actualWithdraw).toFixed(2));
-        newThreshold    = parseFloat((threshold + Math.max(0, actualKeep)).toFixed(2));
-        newTradeOnlyBal = newThreshold; // reset tradeOnlyBal to new threshold
+      if (splitDue) {
+        const keepAmt    = didWithdraw
+          ? parseFloat((aboveThresh - actualWithdraw).toFixed(2))   // use actual
+          : suggestedKeep;                                           // use formula
+        newThreshold    = parseFloat((threshold + Math.max(0, keepAmt)).toFixed(2));
+        newTradeOnlyBal = newThreshold;
       }
 
       const result = {
