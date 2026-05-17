@@ -193,24 +193,24 @@ function parseMT5Text(rawText, brokerOffsetHrs, userOffsetHrs) {
   const posIdMatch = rawText.match(/#(\d{5,12})/);
   if (posIdMatch) {
     const positionId = posIdMatch[1];
-    const symMatch    = rawText.match(/([A-Z]+[!.]?[A-Z0-9]*)\s+(buy|sell)\s+([\d.]+)/i);
 
-    // Find ALL price→price pairs in the text
+    // Find symbol/direction/size from the line CONTAINING the position ID
+    // This avoids picking up size from list view trades behind the popup
+    const posIdLineIdx = rawText.split('\n').findIndex(l => l.includes('#' + positionId));
+    const nearLines = rawText.split('\n').slice(Math.max(0, posIdLineIdx - 2), posIdLineIdx + 3).join(' ');
+    const symMatch = nearLines.match(/([A-Z]+[!.]?[A-Z0-9]*)\s+(buy|sell)\s+([\d.]+)/i)
+                  || rawText.match(/([A-Z]+[!.]?[A-Z0-9]*)\s+(buy|sell)\s+([\d.]+)/i);
+
+    // Find ALL price→price pairs (both numbers must be > 100 to avoid date fragments)
     const allPricePairs = [...rawText.matchAll(/([\d]{3,}\.[\d]+)\s*[→\->—–]+\s*([\d]{3,}\.[\d]+)/g)];
-
-    // Find the pair closest to (or after) the position ID in the text
     const posIdIndex = rawText.indexOf('#' + positionId);
-    let bestPair = null;
-    let bestDist = Infinity;
+    let bestPair = null, bestDist = Infinity;
     allPricePairs.forEach(m => {
       const dist = Math.abs(m.index - posIdIndex);
       if (dist < bestDist) { bestDist = dist; bestPair = m; }
     });
 
-    // Find all datetimes — the popup has TWO: entry → exit
-    const allDts = [...rawText.matchAll(/(\d{4}[.\-]\d{2}[.\-]\d{2}\s+\d{2}:\d{2}(?::\d{2})?)/g)].map(m=>m[1]);
-    // Find the datetime pair closest to posId (the popup datetimes, not list view ones)
-    // The popup datetime line looks like "2026.05.14 09:15:00 → 2026.05.14 10:36:55"
+    // Find entry→exit datetime pair (two datetimes separated by arrow)
     const dtPairMatch = rawText.match(/(\d{4}[.\-]\d{2}[.\-]\d{2}\s+\d{2}:\d{2}(?::\d{2})?)\s*[→\->—–]+\s*(\d{4}[.\-]\d{2}[.\-]\d{2}\s+\d{2}:\d{2}(?::\d{2})?)/);
 
     const slMatch     = rawText.match(/S\/L[:\s]+([\d.]+)/i);
@@ -219,17 +219,35 @@ function parseMT5Text(rawText, brokerOffsetHrs, userOffsetHrs) {
 
     if (symMatch && bestPair) {
       const [,sym,dir,size] = symMatch;
-      const ep = bestPair[1], xp = bestPair[2];
+      const [,ep,xp] = bestPair;
       const cleanSym = sym.replace(/[!.]R$/i,'').replace(/[!.]$/,'').toUpperCase();
 
       const dt1 = dtPairMatch ? convertDt(dtPairMatch[1]) : { date:'', time:'' };
       const dt2 = dtPairMatch ? convertDt(dtPairMatch[2]) : dt1;
 
-      // P&L: find the largest standalone decimal (not a price >1000, not entry/exit price)
-      const epR = Math.round(parseFloat(ep)), xpR = Math.round(parseFloat(xp));
-      const allNumbers = [...rawText.matchAll(/([-]?\d+\.\d{2})\b/g)].map(m=>parseFloat(m[1]));
-      const pnlCandidates = allNumbers.filter(n => Math.abs(n) < 5000 && Math.abs(n) > 0 && Math.round(Math.abs(n)) !== epR && Math.round(Math.abs(n)) !== xpR);
-      const pnl = pnlCandidates.length ? pnlCandidates.reduce((a,b) => Math.abs(b)>Math.abs(a)?b:a, 0) : 0;
+      // Find P&L: look on the SAME LINE as the price pair first
+      const priceLineMatch = rawText.split('\n').find(l => l.includes(ep) && l.includes(xp));
+      let pnl = 0;
+      if (priceLineMatch) {
+        // Remove the price pair and arrow from the line, find remaining numbers
+        const remaining = priceLineMatch.replace(ep,'').replace(xp,'').replace(/[→\->—–]+/,'');
+        const numMatch = remaining.match(/([-]?\d+\.\d{2})\b/);
+        if (numMatch) pnl = parseFloat(numMatch[1]);
+      }
+      // Fallback: search full text but exclude date-like values (e.g. 2026.05)
+      if (!pnl) {
+        const epR = Math.round(parseFloat(ep)), xpR = Math.round(parseFloat(xp));
+        const allNumbers = [...rawText.matchAll(/([-]?\d+\.\d{2})\b/g)].map(m=>parseFloat(m[1]));
+        // Exclude: prices (>1000), date fragments (year ~2026), small noise (<0.01)
+        const candidates = allNumbers.filter(n => {
+          const abs = Math.abs(n);
+          return abs > 0.01 && abs < 1000 &&
+            Math.round(abs) !== epR && Math.round(abs) !== xpR &&
+            !(n > 2000 && n < 2100); // exclude year-like values e.g. 2026.05
+        });
+        if (candidates.length) pnl = candidates.reduce((a,b) => Math.abs(b)>Math.abs(a)?b:a, 0);
+      }
+
       const fees = chargeMatch ? Math.abs(parseFloat(chargeMatch[1])||0) : 0;
 
       trades.push({
@@ -246,7 +264,7 @@ function parseMT5Text(rawText, brokerOffsetHrs, userOffsetHrs) {
         takeProfit: tpMatch?parseFloat(tpMatch[1]):null,
         status:     pnl>0.5?'Win':pnl<-0.5?'Loss':'Breakeven',
         source:     'MT5 Screenshot',
-        positionId, // real MT5 ID — matches Excel perfectly
+        positionId,
       });
     }
     return trades;
