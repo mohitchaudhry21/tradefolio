@@ -790,6 +790,14 @@ export function ImportPage() {
 
   const totalPnl = preview?.reduce((s, t) => s + (t.pnl || 0), 0) || 0;
   const wins     = preview?.filter(t => t.status === 'Win').length || 0;
+  const previewSorted = useMemo(() => {
+    if (!preview) return [];
+    return [...preview].sort((a,b) => {
+      const da = a.exitDate||a.entryDate||'', db = b.exitDate||b.entryDate||'';
+      if (da !== db) return db.localeCompare(da);
+      return (b.exitTime||b.entryTime||'').localeCompare(a.exitTime||a.entryTime||'');
+    });
+  }, [preview]);
 
   return (
     <div>
@@ -1006,7 +1014,7 @@ export function ImportPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {preview.map((t,i) => {
+                  {previewSorted.map((t,i) => {
                     const dup = isDuplicate(t);
                     return (
                     <tr key={i} style={{borderBottom:'1px solid var(--border)', opacity: dup?0.45:1, background: dup?'rgba(245,158,11,.04)':''}}
