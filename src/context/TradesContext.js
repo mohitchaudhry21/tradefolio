@@ -310,20 +310,31 @@ export function TradesProvider({ children }) {
       });
       const merged = [...brandNew, ...updated];
 
-      // Deduplicate by positionId — if any duplicates crept in from previous imports,
-      // this clears them. Prefer the LAST occurrence (most recently updated).
-      // Trades without positionId (manual) are always kept.
+      // Final dedup — catches anything that slipped through the brandNew filter
+      // Priority: existing trades (in `updated`) beat newly added ones (in `brandNew`)
+      // Use nd-key (entry price + size) as the tiebreaker
       const seenPositions = new Set();
+      const seenNdKeys    = new Set();
       const deduped = [];
-      for (let i = merged.length - 1; i >= 0; i--) {
-        const t = merged[i];
-        if (!t.positionId) {
-          deduped.unshift(t);
-        } else if (!seenPositions.has(t.positionId)) {
-          seenPositions.add(t.positionId);
-          deduped.unshift(t);
-        }
-        // else: duplicate — skip it
+      // Process `updated` first (existing trades take priority)
+      for (const t of updated) {
+        const ndKey = t.entryPrice && !t.isWithdrawal && !t.isDeposit
+          ? `nd-${Math.round(parseFloat(t.entryPrice))}-${parseFloat(t.size||0).toFixed(2)}`
+          : null;
+        if (t.positionId) seenPositions.add(t.positionId);
+        if (ndKey)        seenNdKeys.add(ndKey);
+        deduped.push(t);
+      }
+      // Now add brandNew only if not already covered
+      for (const t of brandNew) {
+        if (t.positionId && seenPositions.has(t.positionId)) continue;
+        const ndKey = t.entryPrice && !t.isWithdrawal && !t.isDeposit
+          ? `nd-${Math.round(parseFloat(t.entryPrice))}-${parseFloat(t.size||0).toFixed(2)}`
+          : null;
+        if (ndKey && seenNdKeys.has(ndKey)) continue; // existing trade with same price+size exists
+        if (ndKey) seenNdKeys.add(ndKey);
+        if (t.positionId) seenPositions.add(t.positionId);
+        deduped.push(t);
       }
       return deduped;
     });
