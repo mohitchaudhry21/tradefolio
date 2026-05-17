@@ -6,6 +6,16 @@ const fmtA = n => '$' + Math.abs(n).toLocaleString('en-US',{minimumFractionDigit
 const fmtS = n => (n>=0?'+':'-') + fmtA(n);
 const clr  = n => n >= 0 ? '#4ade80' : '#f87171';
 
+// "2026-02-04" → "Feb 4"
+function fmtAxisDate(d) {
+  if (!d) return '';
+  const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const p = d.split('-');
+  if (p.length === 3) return M[parseInt(p[1],10)-1] + ' ' + parseInt(p[2],10);
+  if (p.length === 2) return M[parseInt(p[0],10)-1] + ' ' + parseInt(p[1],10);
+  return d;
+}
+
 function weekStart(dateStr) {
   const d = new Date(dateStr + 'T12:00:00');
   const day = d.getDay();
@@ -162,7 +172,7 @@ export default function BalancePage() {
     return Object.entries(byDay).sort(([a],[b])=>a.localeCompare(b)).map(([date,balance])=>{
       const wk=weekStart(date); const idx=weeks.findIndex(w=>w>wk);
       const tw=idx>0?weeks[idx-1]:weeks[0];
-      return {date:date.slice(5),balance,threshold:threshByWeek[tw]||startingBalance};
+      return {date:fmtAxisDate(date),balance,threshold:threshByWeek[tw]||startingBalance};
     });
   }, [rows, weeklyData, startingBalance]);
 
@@ -371,7 +381,7 @@ export default function BalancePage() {
                     <stop offset="95%" stopColor="#f59e0b" stopOpacity={0}/>
                   </linearGradient>
                 </defs>
-                <XAxis dataKey="date" tick={{fill:'var(--text-muted)',fontSize:10}} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={40}/>
+                <XAxis dataKey="date" tick={{fill:'var(--text-muted)',fontSize:10}} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={55}/>
                 <YAxis tick={{fill:'var(--text-muted)',fontSize:10}} tickLine={false} axisLine={false} tickFormatter={v=>'$'+(v/1000).toFixed(1)+'k'} width={52}/>
                 <Tooltip content={<ChartTip/>}/>
                 <Area type="stepAfter" dataKey="threshold" name="threshold" stroke="#f59e0b" strokeWidth={1.5} strokeDasharray="5 3" fill="url(#thGrad)" dot={false} activeDot={false}/>
