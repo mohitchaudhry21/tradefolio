@@ -204,15 +204,18 @@ function parseMT5Text(rawText, brokerOffsetHrs, userOffsetHrs) {
                   || rawText.match(/([A-Z]+[!.]?[A-Z0-9]*)\s+(buy|sell)\s+([\d.]+)/i);
 
     // Find the price line: "ENTRY → EXIT    PNL"
-    // This is the line with two large numbers separated by an arrow, followed by the P&L
-    let bestPairLine = null, ep = null, xp = null, pnl = 0;
+    // PNL must NOT be followed by a dot (to exclude dates like 2026.05.13 → avoids 2026.05)
+    let ep = null, xp = null, pnl = 0;
     for (const line of lines) {
-      const m = line.match(/([\d]{3,}\.[\d]+)\s*[→\->—–]+\s*([\d]{3,}\.[\d]+)\s+([-]?[\d]+\.[\d]{2})\b/);
+      const m = line.match(/([\d]{3,}\.[\d]+)\s*[→\->—–]+\s*([\d]{3,}\.[\d]+)\s+([-]?[\d]+\.[\d]{2})(?![.\d])/);
       if (m) {
-        bestPairLine = line;
-        ep = m[1]; xp = m[2];
-        pnl = parseFloat(m[3]);
-        break;
+        const candidate = parseFloat(m[3]);
+        // Sanity check: P&L should not look like a year (2000-2100 range)
+        if (Math.abs(candidate) < 2000 || Math.abs(candidate) > 2100) {
+          ep = m[1]; xp = m[2];
+          pnl = candidate;
+          break;
+        }
       }
     }
     // Fallback: find price pair without P&L on same line
@@ -222,15 +225,17 @@ function parseMT5Text(rawText, brokerOffsetHrs, userOffsetHrs) {
         if (m) { ep = m[1]; xp = m[2]; break; }
       }
     }
-    // Fallback P&L: find standalone number not matching prices, not a date/year
+    // Fallback P&L: scan all lines for a standalone number (not price, not date)
     if (!pnl && ep && xp) {
       const epR = Math.round(parseFloat(ep)), xpR = Math.round(parseFloat(xp));
       for (const line of lines) {
-        const nums = [...line.matchAll(/([-]?\d+\.\d{2})\b/g)].map(m=>parseFloat(m[1]));
+        // Skip lines that look like datetimes
+        if (/\d{4}[.\-]\d{2}[.\-]\d{2}/.test(line)) continue;
+        const nums = [...line.matchAll(/([-]?\d+\.\d{2})(?![.\d])/g)].map(m=>parseFloat(m[1]));
         for (const n of nums) {
           const abs = Math.abs(n);
           if (abs > 0.01 && abs < 1000 && Math.round(abs) !== epR && Math.round(abs) !== xpR) {
-            if (Math.abs(n) > Math.abs(pnl)) pnl = n;
+            if (abs > Math.abs(pnl)) pnl = n;
           }
         }
       }
