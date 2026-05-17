@@ -256,7 +256,12 @@ export function TradesProvider({ children }) {
 
     const tradeKeys = (t) => {
       const baseDate = t.exitDate || t.entryDate || '';
-      return adjacentDates(baseDate).map(d => tradeKey(t, d)).filter(Boolean);
+      const withDates = adjacentDates(baseDate).map(d => tradeKey(t, d)).filter(Boolean);
+      // Also add a date-free key as ultimate fallback (entry price + size only)
+      if (t.entryPrice && !t.isWithdrawal && !t.isDeposit) {
+        withDates.push(`nd-${Math.round(parseFloat(t.entryPrice))}-${parseFloat(t.size||0).toFixed(2)}`);
+      }
+      return withDates;
     };
 
     setTrades(prev => {
