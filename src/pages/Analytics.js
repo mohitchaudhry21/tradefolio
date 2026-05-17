@@ -549,8 +549,6 @@ export default function Analytics() {
           </div>
         </div>
 
-        </div>
-
         {/* ── Monthly P&L Bar Chart ──────────────────────────────────── */}
         {monthlyChartData.length > 1 && (
           <div className="card" style={{marginBottom:16}}>
