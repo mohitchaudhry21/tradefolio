@@ -274,6 +274,64 @@ export default function Analytics() {
 
   const maxDayAbs=Math.max(...dayPerf.map(d=>Math.abs(d.pnl)),1);
 
+  // Monthly P&L bar chart data
+  const monthlyChartData = useMemo(() => {
+    const map = {};
+    filteredTrades.forEach(t => {
+      const ym = (t.exitDate||t.entryDate||'').slice(0,7);
+      if (!ym) return;
+      if (!map[ym]) map[ym] = 0;
+      map[ym] += t.pnl||0;
+    });
+    return Object.entries(map).sort(([a],[b])=>a.localeCompare(b)).map(([ym, pnl]) => ({
+      month: new Date(ym+'-01T12:00:00').toLocaleDateString('en-US',{month:'short',year:'2-digit'}),
+      pnl: parseFloat(pnl.toFixed(2)),
+    }));
+  }, [filteredTrades]);
+
+  // Hourly performance
+  const hourlyData = useMemo(() => {
+    const map = {};
+    filteredTrades.forEach(t => {
+      if (!t.entryTime) return;
+      const h = parseInt(t.entryTime.split(':')[0], 10);
+      if (isNaN(h)) return;
+      if (!map[h]) map[h] = { pnl:0, total:0 };
+      map[h].pnl += t.pnl||0; map[h].total++;
+    });
+    return Array.from({length:24},(_,h) => ({
+      hour: `${String(h).padStart(2,'0')}:00`,
+      pnl:  parseFloat((map[h]?.pnl||0).toFixed(2)),
+      total:map[h]?.total||0,
+    })).filter(d => d.total > 0);
+  }, [filteredTrades]);
+
+  // Hold time display
+  const fmtHold = mins => {
+    if (!mins || mins <= 0) return '—';
+    if (mins < 60) return `${Math.round(mins)}m`;
+    if (mins < 1440) return `${Math.floor(mins/60)}h ${Math.round(mins%60)}m`;
+    return `${Math.floor(mins/1440)}d ${Math.floor((mins%1440)/60)}h`;
+  };
+  const winHoldMins = useMemo(() => {
+    const wins = filteredTrades.filter(t => t.status==='Win' && t.entryDate && t.exitDate);
+    const mins = wins.map(t => {
+      const e = new Date(`${t.entryDate}T${t.entryTime||'00:00'}`);
+      const x = new Date(`${t.exitDate}T${t.exitTime||'00:00'}`);
+      return (x-e)/60000;
+    }).filter(v => v > 0);
+    return mins.length ? mins.reduce((s,v)=>s+v,0)/mins.length : 0;
+  }, [filteredTrades]);
+  const lossHoldMins = useMemo(() => {
+    const losses = filteredTrades.filter(t => t.status==='Loss' && t.entryDate && t.exitDate);
+    const mins = losses.map(t => {
+      const e = new Date(`${t.entryDate}T${t.entryTime||'00:00'}`);
+      const x = new Date(`${t.exitDate}T${t.exitTime||'00:00'}`);
+      return (x-e)/60000;
+    }).filter(v => v > 0);
+    return mins.length ? mins.reduce((s,v)=>s+v,0)/mins.length : 0;
+  }, [filteredTrades]);
+
   return (
     <div>
       <div className="page-header">
@@ -361,6 +419,8 @@ export default function Analytics() {
               <div className="qs-item"><div className="qs-label">LOSS STREAK</div><div className="qs-val neu">{fs.maxLs} trades</div></div>
               <div className="qs-item"><div className="qs-label">RISK:REWARD</div><div className="qs-val neu">{fs.avgRR > 0 ? `1:${fs.avgRR.toFixed(2)}` : '—'}</div></div>
               <div className="qs-item"><div className="qs-label">OPEN TRADES</div><div className="qs-val neu">0</div></div>
+              <div className="qs-item"><div className="qs-label">AVG HOLD (WIN)</div><div className="qs-val pos" style={{fontSize:14}}>{fmtHold(winHoldMins)}</div></div>
+              <div className="qs-item"><div className="qs-label">AVG HOLD (LOSS)</div><div className={`qs-val ${lossHoldMins>winHoldMins&&winHoldMins>0?'neg':'neu'}`} style={{fontSize:14}}>{fmtHold(lossHoldMins)}</div></div>
             </div>
           </div>
 
@@ -488,6 +548,49 @@ export default function Analytics() {
             })}
           </div>
         </div>
+
+        </div>
+
+        {/* ── Monthly P&L Bar Chart ──────────────────────────────────── */}
+        {monthlyChartData.length > 1 && (
+          <div className="card" style={{marginBottom:16}}>
+            <div className="card-title">📅 Monthly P&L</div>
+            <ResponsiveContainer width="100%" height={180}>
+              <BarChart data={monthlyChartData} margin={{top:5,right:5,left:0,bottom:0}}>
+                <XAxis dataKey="month" tick={{fill:'var(--text-muted)',fontSize:10}} tickLine={false} axisLine={false}/>
+                <YAxis tick={{fill:'var(--text-muted)',fontSize:10}} tickLine={false} axisLine={false} tickFormatter={v=>`$${v}`} width={55}/>
+                <Tooltip content={({active,payload,label})=>active&&payload?.length?(<div className="chart-tip"><div className="chart-tip-label">{label}</div><div className={`chart-tip-val ${payload[0].value>=0?'pos':'neg'}`}>{fmt(payload[0].value)}</div></div>):null}/>
+                <ReferenceLine y={0} stroke="var(--border-light)" strokeDasharray="3 3"/>
+                <Bar dataKey="pnl" radius={[4,4,0,0]}>
+                  {monthlyChartData.map((d,i)=><Cell key={i} fill={d.pnl>=0?'#3b82f6':'#ef4444'} fillOpacity={0.85}/>)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
+        {/* ── Hour-by-Hour Performance ──────────────────────────────── */}
+        {hourlyData.length > 0 && (
+          <div className="card" style={{marginBottom:16}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
+              <div>
+                <div className="card-title" style={{margin:0}}>🕐 Hour-by-Hour Performance</div>
+                <div style={{fontSize:11,color:'var(--text-muted)',marginTop:3}}>P&L grouped by entry hour (your local broker time)</div>
+              </div>
+            </div>
+            <ResponsiveContainer width="100%" height={180}>
+              <BarChart data={hourlyData} margin={{top:5,right:5,left:0,bottom:0}}>
+                <XAxis dataKey="hour" tick={{fill:'var(--text-muted)',fontSize:10}} tickLine={false} axisLine={false}/>
+                <YAxis tick={{fill:'var(--text-muted)',fontSize:10}} tickLine={false} axisLine={false} tickFormatter={v=>`$${v}`} width={55}/>
+                <Tooltip content={({active,payload,label})=>active&&payload?.length?(<div className="chart-tip"><div className="chart-tip-label">{label} · {payload[0]?.payload?.total} trades</div><div className={`chart-tip-val ${payload[0].value>=0?'pos':'neg'}`}>{fmt(payload[0].value)}</div></div>):null}/>
+                <ReferenceLine y={0} stroke="var(--border-light)" strokeDasharray="3 3"/>
+                <Bar dataKey="pnl" radius={[4,4,0,0]}>
+                  {hourlyData.map((d,i)=><Cell key={i} fill={d.pnl>=0?'#3b82f6':'#ef4444'} fillOpacity={0.85}/>)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
 
         {/* ── Setup Breakdown ─────────────────────────────────────────── */}
         <div className="card" style={{marginBottom:16}}>
