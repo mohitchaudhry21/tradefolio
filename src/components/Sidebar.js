@@ -21,9 +21,16 @@ const navItems = [
 ];
 
 export default function Sidebar() {
-  const { stats, broker, accounts, activeAccountId, setActiveAccountId, activeAccount, settings, cloudStatus } = useTrades();
+  const { stats, trades, broker, accounts, activeAccountId, setActiveAccountId, activeAccount, settings, cloudStatus } = useTrades();
   const [showAccPicker, setShowAccPicker] = useState(false);
+  const [theme, setTheme] = useState(() => localStorage.getItem('tf_theme') || 'dark');
   const pickerRef = useRef(null);
+
+  // Apply theme to document
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('tf_theme', theme);
+  }, [theme]);
 
   useEffect(() => {
     if (!showAccPicker) return;
@@ -38,6 +45,23 @@ export default function Sidebar() {
   const pct        = stats.accountSize > 0 ? ((grossPnl / stats.accountSize) * 100).toFixed(1) : '0.0';
   const traderName = settings?.traderName || 'Trader';
   const initial    = traderName.charAt(0).toUpperCase();
+
+  // Today and this week P&L
+  const todayStr = new Date().toISOString().slice(0,10);
+  const weekStart = (() => {
+    const d = new Date(); const day = d.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    const mon = new Date(d); mon.setDate(d.getDate() + diff);
+    return mon.toISOString().slice(0,10);
+  })();
+
+  const brokeragePerLot = stats.brokeragePerLot || 0;
+  const tradeComm = t => brokeragePerLot > 0 ? brokeragePerLot * (t.size||0) : (t.fees||0);
+  const netT = t => (t.pnl||0) - tradeComm(t);
+
+  const baseTrades = trades.filter(t => !t.isWithdrawal && !t.isDeposit && !t.isOpen && t.status !== 'Open');
+  const todayPnl   = baseTrades.filter(t => (t.exitDate||t.entryDate||'') === todayStr).reduce((s,t) => s+netT(t), 0);
+  const weekPnl    = baseTrades.filter(t => (t.exitDate||t.entryDate||'') >= weekStart).reduce((s,t) => s+netT(t), 0);
 
   return (
     <aside className="sidebar">
@@ -164,6 +188,13 @@ export default function Sidebar() {
             🔒 Lock / Log out
           </button>
         )}
+        {/* Theme toggle */}
+        <button className="theme-toggle" onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}>
+          <span>{theme === 'dark' ? '🌙 Dark mode' : '☀️ Light mode'}</span>
+          <div className={`theme-toggle-track${theme === 'light' ? ' on' : ''}`}>
+            <div className="theme-toggle-thumb"/>
+          </div>
+        </button>
         <div className="pnl-card">
           <div className="pnl-label">GROSS P&L{activeAccount ? ` · ${activeAccount.name}` : ''}</div>
           <div className={`pnl-val ${grossPnl >= 0 ? 'pos' : 'neg'}`}>
@@ -188,6 +219,21 @@ export default function Sidebar() {
           </div>
           <div style={{ fontSize:10, color:'var(--text-muted)', marginTop:2 }}>
             Account: ${(stats.accountSize||10000).toLocaleString()}
+          </div>
+          {/* Today + This Week */}
+          <div style={{ marginTop:8, paddingTop:8, borderTop:'1px solid var(--border)', display:'flex', flexDirection:'column', gap:4 }}>
+            <div style={{ display:'flex', justifyContent:'space-between', fontSize:11 }}>
+              <span style={{ color:'var(--text-muted)' }}>Today</span>
+              <span style={{ fontWeight:700, color: todayPnl === 0 ? 'var(--text-muted)' : todayPnl > 0 ? 'var(--blue-bright)' : 'var(--red)' }}>
+                {todayPnl === 0 ? '—' : (todayPnl > 0 ? '+' : '') + '$' + Math.abs(todayPnl).toFixed(2)}
+              </span>
+            </div>
+            <div style={{ display:'flex', justifyContent:'space-between', fontSize:11 }}>
+              <span style={{ color:'var(--text-muted)' }}>This Week</span>
+              <span style={{ fontWeight:700, color: weekPnl === 0 ? 'var(--text-muted)' : weekPnl > 0 ? 'var(--blue-bright)' : 'var(--red)' }}>
+                {weekPnl === 0 ? '—' : (weekPnl > 0 ? '+' : '') + '$' + Math.abs(weekPnl).toFixed(2)}
+              </span>
+            </div>
           </div>
         </div>
       </div>
