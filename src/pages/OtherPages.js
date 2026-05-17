@@ -195,57 +195,53 @@ function parseMT5Text(rawText, brokerOffsetHrs, userOffsetHrs) {
     const positionId = posIdMatch[1];
     const lines = rawText.split('\n').map(l => l.trim());
 
-    // Find the line containing the position ID — it has "SYMBOL buy/sell SIZE #ID"
+    // Only look at text AFTER the position ID line — list view prices appear before it
     const posIdLineIdx = lines.findIndex(l => l.includes('#' + positionId));
-    const posIdLine    = posIdLineIdx >= 0 ? lines[posIdLineIdx] : '';
-    
-    // Extract symbol/direction/size from the position ID line
-    const symMatch = posIdLine.match(/([A-Z]+[!.]?[A-Z0-9]*)\s+(buy|sell)\s+([\d.]+)/i)
-                  || rawText.match(/([A-Z]+[!.]?[A-Z0-9]*)\s+(buy|sell)\s+([\d.]+)/i);
+    const popupLines = posIdLineIdx >= 0 ? lines.slice(posIdLineIdx) : lines;
+    const popupText  = popupLines.join('\n');
 
-    // Find the price line: "ENTRY → EXIT    PNL"
-    // PNL must NOT be followed by a dot (to exclude dates like 2026.05.13 → avoids 2026.05)
+    // Get symbol/direction/size from the position ID line itself
+    const posIdLine = posIdLineIdx >= 0 ? lines[posIdLineIdx] : '';
+    const symMatch = posIdLine.match(/([A-Z]+[!.]?[A-Z0-9]*)\s+(buy|sell)\s+([\d.]+)/i)
+                  || popupText.match(/([A-Z]+[!.]?[A-Z0-9]*)\s+(buy|sell)\s+([\d.]+)/i);
+
+    // Find price pair ONLY in popup lines (after position ID)
     let ep = null, xp = null, pnl = 0;
-    for (const line of lines) {
+    for (const line of popupLines) {
       const m = line.match(/([\d]{3,}\.[\d]+)\s*[→\->—–]+\s*([\d]{3,}\.[\d]+)\s+([-]?[\d]+\.[\d]{2})(?![.\d])/);
       if (m) {
         const candidate = parseFloat(m[3]);
-        // Sanity check: P&L should not look like a year (2000-2100 range)
-        if (Math.abs(candidate) < 2000 || Math.abs(candidate) > 2100) {
-          ep = m[1]; xp = m[2];
-          pnl = candidate;
-          break;
+        if (Math.abs(candidate) < 2000) { // exclude year-like values
+          ep = m[1]; xp = m[2]; pnl = candidate; break;
         }
       }
     }
-    // Fallback: find price pair without P&L on same line
+    // Fallback: price pair without P&L on same line
     if (!ep) {
-      for (const line of lines) {
+      for (const line of popupLines) {
         const m = line.match(/([\d]{3,}\.[\d]+)\s*[→\->—–]+\s*([\d]{3,}\.[\d]+)/);
         if (m) { ep = m[1]; xp = m[2]; break; }
       }
     }
-    // Fallback P&L: scan all lines for a standalone number (not price, not date)
+    // Fallback P&L: scan popup lines (skip datetime lines)
     if (!pnl && ep && xp) {
       const epR = Math.round(parseFloat(ep)), xpR = Math.round(parseFloat(xp));
-      for (const line of lines) {
-        // Skip lines that look like datetimes
-        if (/\d{4}[.\-]\d{2}[.\-]\d{2}/.test(line)) continue;
+      for (const line of popupLines) {
+        if (/\d{4}[.\-]\d{2}[.\-]\d{2}/.test(line)) continue; // skip date lines
         const nums = [...line.matchAll(/([-]?\d+\.\d{2})(?![.\d])/g)].map(m=>parseFloat(m[1]));
         for (const n of nums) {
           const abs = Math.abs(n);
-          if (abs > 0.01 && abs < 1000 && Math.round(abs) !== epR && Math.round(abs) !== xpR) {
+          if (abs > 0.01 && abs < 2000 && Math.round(abs) !== epR && Math.round(abs) !== xpR)
             if (abs > Math.abs(pnl)) pnl = n;
-          }
         }
       }
     }
 
-    // Entry→Exit datetime pair
-    const dtPairMatch = rawText.match(/(\d{4}[.\-]\d{2}[.\-]\d{2}\s+\d{2}:\d{2}(?::\d{2})?)\s*[→\->—–]+\s*(\d{4}[.\-]\d{2}[.\-]\d{2}\s+\d{2}:\d{2}(?::\d{2})?)/);
-    const slMatch     = rawText.match(/S\/L[:\s]+([\d.]+)/i);
-    const tpMatch     = rawText.match(/T\/P[:\s]+([\d.]+)/i);
-    const chargeMatch = rawText.match(/[Cc]harges?[:\s]+([-\d.]+)/);
+    // Entry→Exit datetime pair — also search only in popup text
+    const dtPairMatch = popupText.match(/(\d{4}[.\-]\d{2}[.\-]\d{2}\s+\d{2}:\d{2}(?::\d{2})?)\s*[→\->—–]+\s*(\d{4}[.\-]\d{2}[.\-]\d{2}\s+\d{2}:\d{2}(?::\d{2})?)/);
+    const slMatch     = popupText.match(/S\/L[:\s]+([\d.]+)/i);
+    const tpMatch     = popupText.match(/T\/P[:\s]+([\d.]+)/i);
+    const chargeMatch = popupText.match(/[Cc]harges?[:\s]+([-\d.]+)/);
 
     if (symMatch && ep) {
       const [,sym,dir,size] = symMatch;
