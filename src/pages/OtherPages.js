@@ -777,7 +777,12 @@ export function ImportPage() {
     });
   };
   const exportPDF = () => {
-    const t = trades.filter(x => !x.isWithdrawal && !x.isDeposit);
+    // Filter by active account same way other pages do
+    const accountTrades = activeAccountId
+      ? trades.filter(x => x.accountId === activeAccountId || x.source === accounts.find(a=>a.id===activeAccountId)?.name || x.source === accounts.find(a=>a.id===activeAccountId)?.source)
+      : trades;
+    const t = accountTrades.filter(x => !x.isWithdrawal && !x.isDeposit);
+    const accountLabel = activeAccountId ? (accounts.find(a=>a.id===activeAccountId)?.name || 'Selected Account') : 'All Accounts';
     const wins = t.filter(x => x.status==='Win').length;
     const losses = t.filter(x => x.status==='Loss').length;
     const totalPnl = t.reduce((s,x)=>s+(x.pnl||0),0);
@@ -813,7 +818,7 @@ export function ImportPage() {
       @media print{body{padding:0;}}
     </style></head><body>
     <h1>TradeFolio Performance Report</h1>
-    <div class="sub">Generated ${new Date().toLocaleDateString('en-US',{dateStyle:'long'})} · ${t.length} trades</div>
+    <div class="sub">Generated ${new Date().toLocaleDateString('en-US',{dateStyle:'long'})} · ${t.length} trades · ${accountLabel}</div>
     <div class="grid">
       <div class="card"><div class="clabel">Total P&L</div><div class="cval ${totalPnl>=0?'pos':'neg'}">${fmt(totalPnl)}</div></div>
       <div class="card"><div class="clabel">Win Rate</div><div class="cval">${wr}%</div></div>
