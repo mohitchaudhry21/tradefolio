@@ -347,24 +347,6 @@ export default function Journal() {
             ))}
           </div>
 
-          {/* Completion summary */}
-          {trades.length > 0 && (() => {
-            const total = trades.filter(t => !t.isWithdrawal).length;
-            const done  = journaledIds.length;
-            const pct   = total > 0 ? Math.round((done/total)*100) : 0;
-            return (
-              <div style={{ padding:'6px 10px', borderBottom:'1px solid var(--border)', background:'var(--bg-card)', flexShrink:0 }}>
-                <div style={{ display:'flex', justifyContent:'space-between', fontSize:10, color:'var(--text-muted)', marginBottom:4 }}>
-                  <span>{done} of {total} journaled</span>
-                  <span style={{ fontWeight:700, color: pct>=80?'#4ade80':pct>=40?'#f59e0b':'var(--text-muted)' }}>{pct}%</span>
-                </div>
-                <div style={{ height:3, background:'var(--bg-hover)', borderRadius:2, overflow:'hidden' }}>
-                  <div style={{ height:'100%', width:`${pct}%`, background: pct>=80?'#4ade80':pct>=40?'#f59e0b':'var(--text-muted)', borderRadius:2, transition:'width .3s' }}/>
-                </div>
-              </div>
-            );
-          })()}
-
           {/* Trade cards — scrollable */}
           <div style={{ flex: 1, overflowY: 'auto', padding: '10px 10px' }}>
             {displayTrades.length === 0 && (
