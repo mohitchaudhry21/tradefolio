@@ -5,15 +5,6 @@ import { useTrades } from '../context/TradesContext';
 const fmt  = n => `${n>=0?'+':'-'}$${Math.abs(n).toFixed(2)}`;
 const fmtK = n => Math.abs(n)>=1000 ? `${n<0?'-':''}$${(Math.abs(n)/1000).toFixed(1)}k` : fmt(n);
 
-function fmtAxisDate(d) {
-  if (!d) return '';
-  const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const p = d.split('-');
-  if (p.length === 3) return M[parseInt(p[1],10)-1] + ' ' + parseInt(p[2],10);
-  if (p.length === 2) return M[parseInt(p[0],10)-1] + ' ' + parseInt(p[1],10);
-  return d;
-}
-
 // "2026-02-04" or "02-04" → "Feb 4"
 function fmtAxisDate(d) {
   if (!d) return '';
