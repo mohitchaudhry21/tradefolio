@@ -489,33 +489,53 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;heigh
 
 /* MacBook 13" / small laptop */
 @media(max-width:1280px){
-  .dash-stat-grid  { grid-template-columns: repeat(4,1fr); gap:10px; }
+  .dash-stat-grid    { grid-template-columns: repeat(4,1fr); gap:10px; }
   .balance-stat-grid { grid-template-columns: repeat(4,1fr); }
-  .analytics-3col  { grid-template-columns: 1fr 1fr; }
-  .analytics-stats { grid-template-columns: 1fr 320px; }
-  .page-body{ overflow-x: hidden; }
+  .analytics-3col    { grid-template-columns: 1fr 1fr; }
+  .analytics-stats   { grid-template-columns: 1fr 300px; }
+  .page-body         { overflow-x: hidden; }
 }
 
-/* Tablet — sidebar stays but narrower */
+/* iPad landscape (~1024–1200px) — most iPads in landscape hit this range */
+@media(max-width:1200px){
+  :root{ --sidebar-w: 176px; }
+  .sidebar{ width:176px !important; }
+  .sb-logo-text{ font-size:13px !important; }
+  .nav-item{ font-size:12px !important; padding:8px 10px !important; }
+  .sb-user-name{ font-size:12px !important; }
+  /* Stack chart + calendar vertically */
+  .dash-chart-cal    { grid-template-columns: 1fr !important; }
+  /* Stat grids wrap tighter */
+  .dash-stat-grid    { grid-template-columns: repeat(4,1fr) !important; gap:8px !important; }
+  .balance-stat-grid { grid-template-columns: repeat(3,1fr) !important; }
+  /* Analytics */
+  .analytics-top     { grid-template-columns: repeat(2,1fr) !important; }
+  .analytics-qe      { grid-template-columns: 1fr !important; }
+  .analytics-3col    { grid-template-columns: 1fr 1fr !important; }
+  .analytics-stats   { grid-template-columns: 1fr !important; }
+  /* Prevent horizontal overflow */
+  .page-body         { overflow-x: hidden !important; }
+  .page-header       { flex-wrap: wrap !important; gap:8px !important; }
+}
+
+/* Tablet portrait / narrow (769–1024px) */
 @media(min-width:769px) and (max-width:1024px){
-  :root{ --sidebar-w: 180px; }
-  .sidebar{ width:180px !important; }
-  .sb-logo-text{ font-size:14px !important; }
-  .nav-item{ font-size:12px !important; padding:9px 12px !important; }
-  .pnl-card{ padding:12px !important; }
-  /* Prevent page header from overflowing */
+  :root{ --sidebar-w: 160px; }
+  .sidebar{ width:160px !important; }
+  .sb-logo-text{ font-size:13px !important; }
+  .nav-item{ font-size:11px !important; padding:8px 9px !important; }
+  .pnl-card{ padding:10px !important; }
   .page-header{ flex-wrap:wrap !important; gap:8px !important; }
   .page-body{ overflow-x:hidden !important; }
-  /* Grid overrides */
   .stat-grid        { grid-template-columns:1fr 1fr !important; }
-  .dash-stat-grid   { grid-template-columns: repeat(3,1fr) !important; gap:8px !important; }
+  .dash-stat-grid   { grid-template-columns: repeat(2,1fr) !important; gap:8px !important; }
   .dash-chart-cal   { grid-template-columns: 1fr !important; }
   .analytics-top    { grid-template-columns: repeat(2,1fr) !important; }
   .analytics-qe     { grid-template-columns: 1fr !important; }
-  .analytics-3col   { grid-template-columns: 1fr 1fr !important; }
+  .analytics-3col   { grid-template-columns: 1fr !important; }
   .analytics-stats  { grid-template-columns: 1fr !important; }
   .balance-stat-grid{ grid-template-columns: repeat(2,1fr) !important; }
-  .journal-split    { grid-template-columns: 260px 1fr !important; }
+  .journal-split    { grid-template-columns: 220px 1fr !important; }
 }
 
 .recharts-cartesian-axis-tick-value{fill:var(--text-muted) !important;font-size:11px;}
