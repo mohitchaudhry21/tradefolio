@@ -149,7 +149,7 @@ export default function BalancePage() {
         tradePnl:w.tradePnl, deposits:w.deposits,
         withdrawals:w.withdrawals, profitWithdrawals:actualWithdraw,
         startBal:w.startBalance, endBal:w.endBalance,
-        tradeOnlyBal: didWithdraw ? newThreshold : tradeOnlyBal, // use post-withdrawal value
+        tradeOnlyBal: didWithdraw ? newThreshold : tradeOnlyBal,
         threshold, aboveThresh, splitDue,
         suggestedWithdraw, suggestedKeep,
         actualWithdraw, didWithdraw,
@@ -157,9 +157,10 @@ export default function BalancePage() {
         tradeCount:w.rows.filter(r=>r.isTrade).length,
       };
 
+      // Threshold only advances when a profit withdrawal is actually logged
       if (didWithdraw) {
         threshold    = newThreshold;
-        tradeOnlyBal = newTradeOnlyBal;
+        tradeOnlyBal = newThreshold;
       }
       return result;
     });
@@ -252,7 +253,7 @@ export default function BalancePage() {
       <div className="page-body">
 
         {/* Summary cards */}
-        <div className="balance-stat-grid">
+        <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:12,marginBottom:20}}>
           {[
             {label:'STARTING BALANCE',  val:fmtA(startingBalance),     color:'var(--text-primary)'},
             {label:'TOTAL DEPOSITS',    val:'+'+fmtA(totalDeposits),    color:'#4ade80'},
@@ -451,9 +452,9 @@ export default function BalancePage() {
                             ? <span style={{background:'rgba(74,222,128,.12)',color:'#4ade80',borderRadius:5,padding:'2px 8px',fontSize:10,fontWeight:700}}>✓ Done</span>
                             : <span style={{background:'rgba(245,158,11,.12)',color:'#f59e0b',borderRadius:5,padding:'2px 8px',fontSize:10,fontWeight:700}}>⏳ Pending</span>}
                       </td>
-                      {/* New threshold — only changes when withdrawal is logged */}
-                      <td style={{padding:'10px 10px',textAlign:'right',fontWeight:800,color:w.didWithdraw?'#f59e0b':'var(--text-muted)',whiteSpace:'nowrap'}}>
-                        {w.didWithdraw ? fmtA(w.newThreshold) : fmtA(w.threshold)}
+                      {/* New threshold — shows for any above-threshold week */}
+                      <td style={{padding:'10px 10px',textAlign:'right',fontWeight:800,color:w.didWithdraw?'#f59e0b':w.splitDue?'rgba(245,158,11,0.5)':'var(--text-muted)',whiteSpace:'nowrap'}}>
+                        {w.splitDue ? fmtA(w.newThreshold) : fmtA(w.threshold)}
                       </td>
                       <td style={{padding:'10px 10px',textAlign:'right'}}>
                         {w.splitDue
