@@ -42,7 +42,7 @@ export default function Sidebar() {
   const grossPnl   = stats.totalGrossPnl || 0;
   const commission = stats.totalCommissions || 0;
   const netPnl     = grossPnl - commission;
-  const pct        = stats.accountSize > 0 ? ((grossPnl / stats.accountSize) * 100).toFixed(1) : '0.0';
+  const pct        = stats.accountSize > 0 ? ((netPnl / stats.accountSize) * 100).toFixed(1) : '0.0';
   const traderName = settings?.traderName || 'Trader';
   const initial    = traderName.charAt(0).toUpperCase();
 
