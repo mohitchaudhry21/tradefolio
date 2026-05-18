@@ -314,7 +314,7 @@ export default function Journal() {
       </div>
 
       {/* Two-panel layout — each panel scrolls independently */}
-      <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', flex: 1, overflow: 'hidden' }}>
+      <div className="journal-split">
 
         {/* ── LEFT PANEL: Trade list with independent scroll ── */}
         <div style={{ borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', overflow: 'hidden',
