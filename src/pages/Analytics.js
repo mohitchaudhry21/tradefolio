@@ -549,17 +549,19 @@ export default function Analytics() {
           </div>
         </div>
 
+        </div>
+
         {/* ── Monthly P&L Bar Chart ──────────────────────────────────── */}
-        {monthlyChartData.length > 1 && (
+        {monthlyChartData.length > 0 && (
           <div className="card" style={{marginBottom:16}}>
             <div className="card-title">📅 Monthly P&L</div>
-            <ResponsiveContainer width="100%" height={180}>
-              <BarChart data={monthlyChartData} margin={{top:5,right:5,left:0,bottom:0}}>
-                <XAxis dataKey="month" tick={{fill:'var(--text-muted)',fontSize:10}} tickLine={false} axisLine={false}/>
-                <YAxis tick={{fill:'var(--text-muted)',fontSize:10}} tickLine={false} axisLine={false} tickFormatter={v=>`$${v}`} width={55}/>
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={monthlyChartData} margin={{top:5,right:10,left:0,bottom:5}} barCategoryGap="30%">
+                <XAxis dataKey="month" tick={{fill:'var(--text-muted)',fontSize:11}} tickLine={false} axisLine={false} type="category"/>
+                <YAxis tick={{fill:'var(--text-muted)',fontSize:10}} tickLine={false} axisLine={false} tickFormatter={v=>`$${v}`} width={60}/>
                 <Tooltip content={({active,payload,label})=>active&&payload?.length?(<div className="chart-tip"><div className="chart-tip-label">{label}</div><div className={`chart-tip-val ${payload[0].value>=0?'pos':'neg'}`}>{fmt(payload[0].value)}</div></div>):null}/>
                 <ReferenceLine y={0} stroke="var(--border-light)" strokeDasharray="3 3"/>
-                <Bar dataKey="pnl" radius={[4,4,0,0]}>
+                <Bar dataKey="pnl" radius={[4,4,0,0]} maxBarSize={80}>
                   {monthlyChartData.map((d,i)=><Cell key={i} fill={d.pnl>=0?'#3b82f6':'#ef4444'} fillOpacity={0.85}/>)}
                 </Bar>
               </BarChart>
@@ -576,13 +578,13 @@ export default function Analytics() {
                 <div style={{fontSize:11,color:'var(--text-muted)',marginTop:3}}>P&L grouped by entry hour (your local broker time)</div>
               </div>
             </div>
-            <ResponsiveContainer width="100%" height={180}>
-              <BarChart data={hourlyData} margin={{top:5,right:5,left:0,bottom:0}}>
-                <XAxis dataKey="hour" tick={{fill:'var(--text-muted)',fontSize:10}} tickLine={false} axisLine={false}/>
-                <YAxis tick={{fill:'var(--text-muted)',fontSize:10}} tickLine={false} axisLine={false} tickFormatter={v=>`$${v}`} width={55}/>
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={hourlyData} margin={{top:5,right:10,left:0,bottom:5}} barCategoryGap="20%">
+                <XAxis dataKey="hour" tick={{fill:'var(--text-muted)',fontSize:10}} tickLine={false} axisLine={false} type="category" interval={0}/>
+                <YAxis tick={{fill:'var(--text-muted)',fontSize:10}} tickLine={false} axisLine={false} tickFormatter={v=>`$${v}`} width={60}/>
                 <Tooltip content={({active,payload,label})=>active&&payload?.length?(<div className="chart-tip"><div className="chart-tip-label">{label} · {payload[0]?.payload?.total} trades</div><div className={`chart-tip-val ${payload[0].value>=0?'pos':'neg'}`}>{fmt(payload[0].value)}</div></div>):null}/>
                 <ReferenceLine y={0} stroke="var(--border-light)" strokeDasharray="3 3"/>
-                <Bar dataKey="pnl" radius={[4,4,0,0]}>
+                <Bar dataKey="pnl" radius={[4,4,0,0]} maxBarSize={40}>
                   {hourlyData.map((d,i)=><Cell key={i} fill={d.pnl>=0?'#3b82f6':'#ef4444'} fillOpacity={0.85}/>)}
                 </Bar>
               </BarChart>
