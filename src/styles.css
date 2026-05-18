@@ -487,48 +487,50 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;heigh
   .form-row.cols-4{ grid-template-columns:1fr 1fr !important; }
 }
 
-/* MacBook 13" / small laptop */
-@media(max-width:1280px){
-  .dash-stat-grid    { grid-template-columns: repeat(4,1fr); gap:10px; }
-  .balance-stat-grid { grid-template-columns: repeat(4,1fr); }
-  .analytics-3col    { grid-template-columns: 1fr 1fr; }
-  .analytics-stats   { grid-template-columns: 1fr 300px; }
-  .page-body         { overflow-x: hidden; }
+/* Large tablets + MacBook Air (up to 1500px) — sidebar narrows */
+@media(max-width:1500px){
+  :root{ --sidebar-w: 190px; }
+  .sidebar{ width:190px !important; }
 }
 
-/* iPad landscape (~1024–1200px) — most iPads in landscape hit this range */
-@media(max-width:1200px){
+/* iPad Pro 12.9" landscape + MacBook 13" (up to 1400px) */
+@media(max-width:1400px){
   :root{ --sidebar-w: 176px; }
   .sidebar{ width:176px !important; }
   .sb-logo-text{ font-size:13px !important; }
   .nav-item{ font-size:12px !important; padding:8px 10px !important; }
   .sb-user-name{ font-size:12px !important; }
-  /* Stack chart + calendar vertically */
+  .page-body{ overflow-x:hidden !important; }
+  .page-header{ flex-wrap:wrap !important; gap:8px !important; }
+  /* Stack chart + calendar vertically on all tablets */
   .dash-chart-cal    { grid-template-columns: 1fr !important; }
-  /* Stat grids wrap tighter */
+  /* Stat grids */
   .dash-stat-grid    { grid-template-columns: repeat(4,1fr) !important; gap:8px !important; }
-  .balance-stat-grid { grid-template-columns: repeat(3,1fr) !important; }
+  .balance-stat-grid { grid-template-columns: repeat(4,1fr) !important; }
   /* Analytics */
   .analytics-top     { grid-template-columns: repeat(2,1fr) !important; }
   .analytics-qe      { grid-template-columns: 1fr !important; }
   .analytics-3col    { grid-template-columns: 1fr 1fr !important; }
   .analytics-stats   { grid-template-columns: 1fr !important; }
-  /* Prevent horizontal overflow */
-  .page-body         { overflow-x: hidden !important; }
-  .page-header       { flex-wrap: wrap !important; gap:8px !important; }
+}
+
+/* iPad Air/Pro 11" landscape + smaller (up to 1200px) */
+@media(max-width:1200px){
+  .dash-stat-grid    { grid-template-columns: repeat(4,1fr) !important; gap:8px !important; }
+  .balance-stat-grid { grid-template-columns: repeat(3,1fr) !important; }
+  .analytics-3col    { grid-template-columns: 1fr 1fr !important; }
 }
 
 /* Tablet portrait / narrow (769–1024px) */
 @media(min-width:769px) and (max-width:1024px){
   :root{ --sidebar-w: 160px; }
   .sidebar{ width:160px !important; }
-  .sb-logo-text{ font-size:13px !important; }
   .nav-item{ font-size:11px !important; padding:8px 9px !important; }
   .pnl-card{ padding:10px !important; }
   .page-header{ flex-wrap:wrap !important; gap:8px !important; }
   .page-body{ overflow-x:hidden !important; }
   .stat-grid        { grid-template-columns:1fr 1fr !important; }
-  .dash-stat-grid   { grid-template-columns: repeat(2,1fr) !important; gap:8px !important; }
+  .dash-stat-grid   { grid-template-columns: repeat(2,1fr) !important; }
   .dash-chart-cal   { grid-template-columns: 1fr !important; }
   .analytics-top    { grid-template-columns: repeat(2,1fr) !important; }
   .analytics-qe     { grid-template-columns: 1fr !important; }
