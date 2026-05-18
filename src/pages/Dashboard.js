@@ -165,7 +165,7 @@ export default function Dashboard() {
 
       <div className="page-body">
         {/* Stat cards */}
-        <div className="stat-grid" style={{gridTemplateColumns:'repeat(7,1fr)'}}>
+        <div className="dash-stat-grid">
           <div className="stat-card blue">
             <div className="stat-icon blue">💵</div>
             <div className="stat-label">Gross P&L</div>
@@ -213,7 +213,7 @@ export default function Dashboard() {
         </div>
 
         {/* Chart + Calendar */}
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:18}}>
+        <div className="dash-chart-cal">
 
           {/* Performance chart */}
           <div className="card" style={{padding:'20px 20px 14px'}}>
