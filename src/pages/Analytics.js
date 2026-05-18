@@ -387,7 +387,7 @@ export default function Analytics() {
 
       <div className="page-body">
         {/* Top stats */}
-        <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:14,marginBottom:20}}>
+        <div className="analytics-top">
           {[
             {label:'TOTAL P&L',val:fmtK(fs.totalPnl),sub:`${fs.total} trades · ${fs.breakeven>0?fs.breakeven+' BE · ':''}excl. commission`,sub2:'Gross P&L for the selected period',color:fs.totalPnl>=0?'pos':'neg',icon:'💵',c:'blue'},
             {label:'WIN RATE',val:`${fs.wr.toFixed(1)}%`,sub:`${fs.wins}W · ${fs.losses}L${fs.breakeven>0?` · ${fs.breakeven}BE (excl.)`:''}`,sub2:'Win/Loss trades only — breakeven excluded',color:fs.wr>=50?'pos':'neg',icon:'✅',c:'blue',bar:fs.wr},
@@ -406,7 +406,7 @@ export default function Analytics() {
         </div>
 
         {/* Quick stats + Equity curve */}
-        <div style={{display:'grid',gridTemplateColumns:'300px 1fr',gap:16,marginBottom:16}}>
+        <div className="analytics-qe">
           {/* Quick stats */}
           <div className="card">
             <div className="card-title">Quick Stats</div>
@@ -455,7 +455,7 @@ export default function Analytics() {
         </div>
 
         {/* Long vs Short + Day Performance + Top Symbols */}
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:16,marginBottom:16}}>
+        <div className="analytics-3col">
           {/* Long vs Short */}
           <div className="card">
             <div className="card-title">📈 Long vs Short</div>
@@ -669,7 +669,7 @@ export default function Analytics() {
         </div>
 
         {/* Your Stats big table + Win/Loss dist + Recent */}
-        <div style={{display:'grid',gridTemplateColumns:'1fr 360px',gap:16}}>
+        <div className="analytics-stats">
           {/* Full stats table */}
           <div className="card">
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
