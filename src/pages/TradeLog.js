@@ -32,8 +32,16 @@ export default function TradeLog() {
   const [page,        setPage]        = useState(1);
   const PAGE_SIZE = 50;
 
-  // Unique setups and emotions for filter dropdowns
-  const allSetups   = useMemo(() => ['All', ...Array.from(new Set(trades.map(t=>t.setup).filter(Boolean))).sort()], [trades]);
+  // Unique setups and emotions — flatten arrays properly
+  const allSetups = useMemo(() => {
+    const s = new Set();
+    trades.forEach(t => {
+      if (!t.setup) return;
+      if (Array.isArray(t.setup)) t.setup.forEach(v => { if (v) s.add(v); });
+      else s.add(t.setup);
+    });
+    return ['All', ...Array.from(s).sort()];
+  }, [trades]);
   const allEmotions = useMemo(() => ['All', ...Array.from(new Set(trades.map(t=>t.emotion).filter(Boolean))).sort()], [trades]);
 
   const filtered = useMemo(() => {
@@ -185,7 +193,6 @@ export default function TradeLog() {
         <div className="card" style={{padding:0}}>
           <div style={{padding:'14px 18px',borderBottom:'1px solid var(--border)',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
             <span style={{fontWeight:700,fontSize:14}}>Trade History <span style={{color:'var(--text-muted)',fontSize:12,fontWeight:400}}>{dateRangeActive ? `${statsTrades.length} of ${filtered.length}` : filtered.length} trades</span></span>
-            <button className="btn-icon" title="Filters">⚙ Filters</button>
           </div>
           <div className="table-wrap">
             <table>
