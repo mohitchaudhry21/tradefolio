@@ -252,7 +252,7 @@ export default function BalancePage() {
       <div className="page-body">
 
         {/* Summary cards */}
-        <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:12,marginBottom:20}}>
+        <div className="balance-stat-grid">
           {[
             {label:'STARTING BALANCE',  val:fmtA(startingBalance),     color:'var(--text-primary)'},
             {label:'TOTAL DEPOSITS',    val:'+'+fmtA(totalDeposits),    color:'#4ade80'},
