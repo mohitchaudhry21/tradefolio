@@ -14,6 +14,7 @@ const ACCOUNTS_KEY  = 'tf_accounts';
 
 const defaultSettings = {
   accountSize: 10000, currency: 'USD', timezone: 'UTC', riskPerTrade: 1, brokeragePerLot: 0,
+  symbolCommissions: {},
   statsStartDate: '', statsEndDate: '',
   traderName: 'Trader',
   customSetups:    [],
@@ -388,11 +389,12 @@ export function TradesProvider({ children }) {
       return true;
     });
     return {
-      ...calcStats(statsTrades, effectiveBrokerage),
+      ...calcStats(statsTrades, effectiveBrokerage, settings.symbolCommissions || {}),
       accountSize:     effectiveAccountSize,
       currency:        settings.currency     || 'USD',
       riskPerTrade:    settings.riskPerTrade || 1,
       brokeragePerLot: effectiveBrokerage,
+      symbolCommissions: settings.symbolCommissions || {},
       statsStartDate:  effectiveStartDate,
       statsEndDate:    effectiveEndDate,
       totalWithdrawals: accountTrades.filter(t=>t.isWithdrawal).reduce((s,t)=>s+Math.abs(t.pnl||0),0),
@@ -428,7 +430,7 @@ function save(key, val) {
   try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
 }
 
-function calcStats(trades, brokeragePerLot = 0) {
+function calcStats(trades, brokeragePerLot = 0, symbolCommissions = {}) {
   const empty = {
     totalPnl:0, totalGrossPnl:0, totalBrokerage:0,
     winRate:0, totalTrades:0, totalWins:0, totalLosses:0,
@@ -439,12 +441,19 @@ function calcStats(trades, brokeragePerLot = 0) {
   };
   if (!trades.length) return empty;
 
-  // Commission per trade:
-  // If brokeragePerLot is set for this account → use rate × lots (account-specific rate is source of truth)
-  // If brokeragePerLot = 0 → use t.fees (raw MT5-reported commission)
-  const tradeComm = t => brokeragePerLot > 0
-    ? brokeragePerLot * (t.size || 0)
-    : (t.fees || 0);
+  // Commission priority:
+  // 1. t.fees > 0  → stored fee (Excel import OR manually edited) — always wins
+  // 2. symbolCommissions[symbol] → per-lot rate for this symbol (from Settings)
+  // 3. brokeragePerLot → global per-lot fallback
+  // 4. 0
+  const tradeComm = t => {
+    if ((t.fees || 0) > 0) return t.fees;
+    const sym = (t.symbol || '').toUpperCase();
+    const symRate = symbolCommissions[sym];
+    if (symRate !== undefined && (t.size || 0) > 0) return parseFloat(symRate) * (t.size || 0);
+    if (brokeragePerLot > 0 && (t.size || 0) > 0) return brokeragePerLot * (t.size || 0);
+    return 0;
+  };
 
   // Net P&L = gross P&L minus commission
   const netPnl = t => (t.pnl || 0) - tradeComm(t);
