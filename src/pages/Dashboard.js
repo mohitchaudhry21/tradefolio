@@ -40,10 +40,15 @@ export default function Dashboard() {
   const { trades, stats } = useTrades();
   const brokeragePerLot = stats.brokeragePerLot || 0;
   const accountSize     = stats.accountSize || 10000;
-  // Same commission logic as calcStats: rate × lots if set, else t.fees
-  const tradeComm = t => brokeragePerLot > 0
-    ? brokeragePerLot * (t.size || 0)
-    : (t.fees || 0);
+  const symbolComm      = stats.symbolCommissions || {};
+  const tradeComm = t => {
+    if ((t.fees||0) > 0) return t.fees;
+    const sym = (t.symbol||'').toUpperCase();
+    const sr = symbolComm[sym];
+    if (sr !== undefined && (t.size||0) > 0) return parseFloat(sr) * (t.size||0);
+    if (brokeragePerLot > 0 && (t.size||0) > 0) return brokeragePerLot * (t.size||0);
+    return 0;
+  };
   const netPnl = t => (t.pnl||0) - tradeComm(t);
 
   const [filter,    setFilter]    = useState('ALL');
@@ -143,18 +148,7 @@ export default function Dashboard() {
   }, [dayMap,daysInMonth,year,month]);
 
   const today  = new Date().toISOString().slice(0,10);
-  const weekStartStr = (() => {
-    const d = new Date(); const day = d.getDay();
-    const diff = day === 0 ? -6 : 1 - day;
-    const mon = new Date(d); mon.setDate(d.getDate() + diff);
-    return mon.toISOString().slice(0,10);
-  })();
-
-  const baseTrades = trades.filter(t => !t.isWithdrawal && !t.isDeposit && !t.isOpen && t.status !== 'Open' && (t.exitDate||t.entryDate));
-  const todayPnl   = baseTrades.filter(t => (t.exitDate||t.entryDate||'') === today).reduce((s,t) => s+netPnl(t), 0);
-  const thisWeekPnl = baseTrades.filter(t => (t.exitDate||t.entryDate||'') >= weekStartStr).reduce((s,t) => s+netPnl(t), 0);
-  const totalNetPnl = (stats.totalGrossPnl||0) - (stats.totalCommissions||0);
-  const accountReturn = accountSize > 0 ? ((totalNetPnl / accountSize) * 100) : 0;
+  
 
   return (
     <div>
@@ -165,7 +159,7 @@ export default function Dashboard() {
 
       <div className="page-body">
         {/* Stat cards */}
-        <div className="dash-stat-grid">
+        <div className="stat-grid">
           <div className="stat-card blue">
             <div className="stat-icon blue">💵</div>
             <div className="stat-label">Gross P&L</div>
@@ -192,28 +186,10 @@ export default function Dashboard() {
             <div className="stat-val neu">{stats.winRate.toFixed(1)}%</div>
             <div className="stat-bar"><div className="stat-bar-fill" style={{width:`${stats.winRate}%`,background:stats.winRate>=50?'var(--blue)':'var(--red)'}}/></div>
           </div>
-          <div className="stat-card green">
-            <div className="stat-icon green">📅</div>
-            <div className="stat-label">Today</div>
-            <div className={`stat-val ${todayPnl>=0?'pos':'neg'}`} style={{fontSize:20}}>{todayPnl===0?'—':fmtPnl(todayPnl)}</div>
-            <div className="stat-sub">Net P&L today</div>
-          </div>
-          <div className="stat-card green">
-            <div className="stat-icon green">📆</div>
-            <div className="stat-label">This Week</div>
-            <div className={`stat-val ${thisWeekPnl>=0?'pos':'neg'}`} style={{fontSize:20}}>{thisWeekPnl===0?'—':fmtPnl(thisWeekPnl)}</div>
-            <div className="stat-sub">Net P&L this week</div>
-          </div>
-          <div className="stat-card yellow">
-            <div className="stat-icon yellow">📈</div>
-            <div className="stat-label">Account Return</div>
-            <div className={`stat-val ${accountReturn>=0?'pos':'neg'}`} style={{fontSize:20}}>{accountReturn>=0?'+':''}{accountReturn.toFixed(2)}%</div>
-            <div className="stat-sub">${(stats.accountSize||10000).toLocaleString()} account</div>
-          </div>
         </div>
 
         {/* Chart + Calendar */}
-        <div className="dash-chart-cal">
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:18}}>
 
           {/* Performance chart */}
           <div className="card" style={{padding:'20px 20px 14px'}}>
