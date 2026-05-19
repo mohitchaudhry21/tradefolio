@@ -83,7 +83,15 @@ export default function Analytics() {
 
   const fs = useMemo(() => {
     const brokeragePerLot = stats.brokeragePerLot || 0;
-    const tradeComm = t => brokeragePerLot > 0 ? brokeragePerLot * (t.size||0) : (t.fees||0);
+    const symbolComm = stats.symbolCommissions || {};
+    const tradeComm = t => {
+      if ((t.fees||0) > 0) return t.fees;
+      const sym = (t.symbol||'').toUpperCase();
+      const sr = symbolComm[sym];
+      if (sr !== undefined && (t.size||0) > 0) return parseFloat(sr) * (t.size||0);
+      if (brokeragePerLot > 0 && (t.size||0) > 0) return brokeragePerLot * (t.size||0);
+      return 0;
+    };
     const netPnl    = t => (t.pnl||0) - tradeComm(t);
 
     const wins     = filteredTrades.filter(t=>t.status==='Win');
@@ -191,7 +199,15 @@ export default function Analytics() {
   const setupStats = useMemo(() => {
     const map = {};
     const brokeragePerLot = stats.brokeragePerLot || 0;
-    const tradeComm = t => brokeragePerLot > 0 ? brokeragePerLot * (t.size||0) : (t.fees||0);
+    const symbolComm = stats.symbolCommissions || {};
+    const tradeComm = t => {
+      if ((t.fees||0) > 0) return t.fees;
+      const sym = (t.symbol||'').toUpperCase();
+      const sr = symbolComm[sym];
+      if (sr !== undefined && (t.size||0) > 0) return parseFloat(sr) * (t.size||0);
+      if (brokeragePerLot > 0 && (t.size||0) > 0) return brokeragePerLot * (t.size||0);
+      return 0;
+    };
     const netPnl = t => (t.pnl||0) - tradeComm(t);
 
     filteredTrades.forEach(t => {
@@ -387,7 +403,7 @@ export default function Analytics() {
 
       <div className="page-body">
         {/* Top stats */}
-        <div className="analytics-top">
+        <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:14,marginBottom:20}}>
           {[
             {label:'TOTAL P&L',val:fmtK(fs.totalPnl),sub:`${fs.total} trades · ${fs.breakeven>0?fs.breakeven+' BE · ':''}excl. commission`,sub2:'Gross P&L for the selected period',color:fs.totalPnl>=0?'pos':'neg',icon:'💵',c:'blue'},
             {label:'WIN RATE',val:`${fs.wr.toFixed(1)}%`,sub:`${fs.wins}W · ${fs.losses}L${fs.breakeven>0?` · ${fs.breakeven}BE (excl.)`:''}`,sub2:'Win/Loss trades only — breakeven excluded',color:fs.wr>=50?'pos':'neg',icon:'✅',c:'blue',bar:fs.wr},
@@ -406,7 +422,7 @@ export default function Analytics() {
         </div>
 
         {/* Quick stats + Equity curve */}
-        <div className="analytics-qe">
+        <div style={{display:'grid',gridTemplateColumns:'300px 1fr',gap:16,marginBottom:16}}>
           {/* Quick stats */}
           <div className="card">
             <div className="card-title">Quick Stats</div>
@@ -455,7 +471,7 @@ export default function Analytics() {
         </div>
 
         {/* Long vs Short + Day Performance + Top Symbols */}
-        <div className="analytics-3col">
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:16,marginBottom:16}}>
           {/* Long vs Short */}
           <div className="card">
             <div className="card-title">📈 Long vs Short</div>
@@ -669,7 +685,7 @@ export default function Analytics() {
         </div>
 
         {/* Your Stats big table + Win/Loss dist + Recent */}
-        <div className="analytics-stats">
+        <div style={{display:'grid',gridTemplateColumns:'1fr 360px',gap:16}}>
           {/* Full stats table */}
           <div className="card">
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
