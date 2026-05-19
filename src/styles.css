@@ -42,29 +42,105 @@ html[data-theme="light"] {
   --border-light:   #cbd5e1;
   --blue:           #2563eb;
   --blue-bright:    #1d4ed8;
-  --blue-dim:       rgba(37,99,235,0.1);
+  --blue-dim:       rgba(37,99,235,0.12);
   --blue-glow:      rgba(37,99,235,0.2);
   --red:            #dc2626;
-  --red-dim:        rgba(220,38,38,0.1);
+  --red-dim:        rgba(220,38,38,0.12);
   --green:          #16a34a;
-  --green-dim:      rgba(22,163,74,0.1);
-  --yellow:         #d97706;
-  --yellow-dim:     rgba(217,119,6,0.1);
+  --green-dim:      rgba(22,163,74,0.12);
+  --yellow:         #b45309;
+  --yellow-dim:     rgba(180,83,9,0.12);
   --purple:         #7c3aed;
   --text-primary:   #0f172a;
   --text-secondary: #475569;
   --text-muted:     #94a3b8;
-  --shadow:         0 4px 24px rgba(0,0,0,0.08);
+  --shadow:         0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
 }
-html[data-theme="light"] body {
-  background: var(--bg-base);
-  color: var(--text-primary);
-}
-html[data-theme="light"] .pos { color: #1d4ed8 !important; }
-html[data-theme="light"] .neg { color: #dc2626 !important; }
-html[data-theme="light"] select.form-control option { background:#fff; color:#0f172a; }
+html[data-theme="light"] body { background:var(--bg-base); color:var(--text-primary); }
 html[data-theme="light"] ::-webkit-scrollbar-track { background:#e2e8f0; }
 html[data-theme="light"] ::-webkit-scrollbar-thumb { background:#94a3b8; }
+html[data-theme="light"] select option,
+html[data-theme="light"] .form-control option { background:#fff; color:#0f172a; }
+
+/* ── Cards & Layout ──────────────────────────────────────────── */
+html[data-theme="light"] .card        { box-shadow:0 1px 4px rgba(0,0,0,0.07); }
+html[data-theme="light"] .stat-card   { box-shadow:0 1px 4px rgba(0,0,0,0.07); }
+html[data-theme="light"] .modal       { box-shadow:0 20px 60px rgba(0,0,0,0.18); }
+html[data-theme="light"] .modal-backdrop { background:rgba(0,0,0,0.45); }
+
+/* ── Sidebar ─────────────────────────────────────────────────── */
+html[data-theme="light"] .nav-item:hover  { background:#f1f5f9 !important; color:#0f172a !important; }
+html[data-theme="light"] .nav-item.active { background:rgba(37,99,235,0.1) !important; color:#1d4ed8 !important; }
+html[data-theme="light"] .sb-section  { color:#94a3b8; }
+html[data-theme="light"] .pnl-card    { background:#f8fafc; }
+
+/* ── Typography / colour helpers ────────────────────────────── */
+html[data-theme="light"] .pos         { color:#1d4ed8 !important; }
+html[data-theme="light"] .neg         { color:#dc2626 !important; }
+html[data-theme="light"] .neu         { color:#0f172a !important; }
+html[data-theme="light"] .card-title  { color:#64748b; }
+html[data-theme="light"] .page-title  { color:#0f172a; }
+html[data-theme="light"] .page-sub    { color:#64748b; }
+html[data-theme="light"] .empty-text  { color:#64748b; }
+html[data-theme="light"] .stat-label  { color:#64748b; }
+html[data-theme="light"] .stat-sub    { color:#94a3b8; }
+
+/* ── Badges ─────────────────────────────────────────────────── */
+html[data-theme="light"] .badge-long  { background:rgba(37,99,235,0.12); color:#1d4ed8; }
+html[data-theme="light"] .badge-short { background:rgba(220,38,38,0.12);  color:#dc2626; }
+html[data-theme="light"] .badge-win   { background:rgba(22,163,74,0.12);   color:#15803d; }
+html[data-theme="light"] .badge-loss  { background:rgba(220,38,38,0.12);  color:#dc2626; }
+html[data-theme="light"] .badge-be    { background:rgba(180,83,9,0.12);    color:#b45309; }
+
+/* ── Buttons ─────────────────────────────────────────────────── */
+html[data-theme="light"] .btn-secondary { background:#f1f5f9; border-color:#e2e8f0; color:#0f172a; }
+html[data-theme="light"] .btn-secondary:hover { background:#e2e8f0; }
+html[data-theme="light"] .btn-ghost     { color:#475569; }
+html[data-theme="light"] .btn-ghost:hover { background:#f1f5f9; color:#0f172a; }
+html[data-theme="light"] .btn-icon      { background:#f1f5f9; border-color:#e2e8f0; color:#475569; }
+
+/* ── Inputs & Selects ────────────────────────────────────────── */
+html[data-theme="light"] .filter-inp   { background:#fff; border-color:#e2e8f0; color:#0f172a; }
+html[data-theme="light"] .filter-inp:focus { border-color:#2563eb; }
+html[data-theme="light"] .form-control { background:#f8fafc; border-color:#e2e8f0; color:#0f172a; }
+html[data-theme="light"] .form-control:focus { border-color:#2563eb; background:#fff; }
+html[data-theme="light"] .form-label   { color:#475569; }
+
+/* ── Tables ──────────────────────────────────────────────────── */
+html[data-theme="light"] .table-wrap table thead th { background:#f8fafc; color:#64748b; border-bottom:2px solid #e2e8f0; }
+html[data-theme="light"] .table-wrap table tbody tr { border-bottom:1px solid #f1f5f9; }
+html[data-theme="light"] .table-wrap table tbody tr:hover { background:#f8fafc !important; }
+
+/* ── Chart tooltips ──────────────────────────────────────────── */
+html[data-theme="light"] .chart-tip         { background:#fff; border:1px solid #e2e8f0; box-shadow:0 4px 12px rgba(0,0,0,0.1); }
+html[data-theme="light"] .chart-tip-label   { color:#64748b; }
+html[data-theme="light"] .chart-tip-val     { color:#0f172a; }
+html[data-theme="light"] .chart-tip-val.pos { color:#1d4ed8; }
+html[data-theme="light"] .chart-tip-val.neg { color:#dc2626; }
+
+/* ── Time filter pills ───────────────────────────────────────── */
+html[data-theme="light"] .tf-btn        { background:#f1f5f9; border:1px solid #e2e8f0; color:#475569; }
+html[data-theme="light"] .tf-btn:hover  { background:#e2e8f0; color:#0f172a; }
+html[data-theme="light"] .tf-btn.active { background:rgba(37,99,235,0.12); border-color:rgba(37,99,235,0.35); color:#1d4ed8; }
+
+/* ── Quick Stats (Analytics) ─────────────────────────────────── */
+html[data-theme="light"] .qs-item      { background:#f8fafc; border-color:#e2e8f0; }
+html[data-theme="light"] .qs-label     { color:#64748b; }
+html[data-theme="light"] .qs-val.pos   { color:#1d4ed8; }
+html[data-theme="light"] .qs-val.neg   { color:#dc2626; }
+html[data-theme="light"] .qs-val.neu   { color:#0f172a; }
+
+/* ── Journal cards ───────────────────────────────────────────── */
+html[data-theme="light"] .j-card       { background:#fff; border-color:#e2e8f0; }
+html[data-theme="light"] .j-card:hover { background:#f8fafc; border-color:#cbd5e1; }
+html[data-theme="light"] .j-card.active { border-color:#2563eb; }
+html[data-theme="light"] .j-meta       { color:#64748b; }
+
+/* ── Tags ────────────────────────────────────────────────────── */
+html[data-theme="light"] .tag          { background:#f1f5f9; border-color:#e2e8f0; color:#475569; }
+
+/* ── Recharts area opacity ───────────────────────────────────── */
+html[data-theme="light"] .recharts-area-area { opacity:0.55; }
 
 /* Theme toggle button */
 .theme-toggle {
