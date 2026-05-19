@@ -35,11 +35,11 @@ html[data-theme="light"] {
   --bg-base:        #f0f4f8;
   --bg-primary:     #ffffff;
   --bg-card:        #ffffff;
-  --bg-card2:       #f8fafc;
-  --bg-hover:       #f1f5f9;
-  --bg-input:       #f8fafc;
-  --border:         #e2e8f0;
-  --border-light:   #cbd5e1;
+  --bg-card2:       #f3f6fa;
+  --bg-hover:       #e8edf4;
+  --bg-input:       #f5f7fa;
+  --border:         #dde3eb;
+  --border-light:   #c4cdd8;
   --blue:           #2563eb;
   --blue-bright:    #1d4ed8;
   --blue-dim:       rgba(37,99,235,0.12);
@@ -622,4 +622,126 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;heigh
 @keyframes toastIn {
   from { opacity: 0; transform: translateX(40px); }
   to   { opacity: 1; transform: translateX(0); }
+}
+
+/* ── Additional light mode polish ────────────────────────────── */
+
+/* Stat cards — visible shadow lift from page background */
+html[data-theme="light"] .stat-card {
+  box-shadow: 0 1px 6px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.04);
+}
+html[data-theme="light"] .card {
+  box-shadow: 0 1px 6px rgba(0,0,0,0.07), 0 0 0 1px rgba(0,0,0,0.03);
+}
+
+/* Journal / Trade cards on left panel */
+html[data-theme="light"] .j-card {
+  background: #fff;
+  border: 1px solid #dde3eb !important;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+html[data-theme="light"] .j-card:hover {
+  border-color: #c4cdd8 !important;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+}
+html[data-theme="light"] .j-card.active {
+  border-color: #2563eb !important;
+  box-shadow: 0 0 0 2px rgba(37,99,235,0.15);
+}
+
+/* Journal setup/mistake button pills */
+html[data-theme="light"] .j-setup-btn {
+  background: #e8edf4 !important;
+  border-color: #c4cdd8 !important;
+  color: #374151 !important;
+}
+html[data-theme="light"] .j-setup-btn:hover {
+  background: #dde3eb !important;
+  border-color: #2563eb !important;
+  color: #1d4ed8 !important;
+}
+
+/* Checklist items — make unchecked state visible */
+html[data-theme="light"] .checklist-item {
+  background: #e8edf4 !important;
+  border-color: #c4cdd8 !important;
+}
+html[data-theme="light"] .checklist-item.checked {
+  background: rgba(37,99,235,0.1) !important;
+  border-color: rgba(37,99,235,0.35) !important;
+}
+
+/* Make tab buttons (All/Journaled/Pending) more distinct */
+html[data-theme="light"] .tab-filter-btn {
+  background: #e8edf4;
+  border: 1px solid #dde3eb;
+}
+
+/* Better badge contrast for Long/Short in recent trades */
+html[data-theme="light"] .badge-long {
+  background: rgba(37,99,235,0.15) !important;
+  color: #1d4ed8 !important;
+  font-weight: 700 !important;
+}
+html[data-theme="light"] .badge-short {
+  background: rgba(220,38,38,0.15) !important;
+  color: #dc2626 !important;
+  font-weight: 700 !important;
+}
+
+/* Performance chart area fill — more visible in light mode */
+html[data-theme="light"] .recharts-area-area { opacity: 0.45; }
+
+/* Recharts grid lines */
+html[data-theme="light"] .recharts-cartesian-grid-horizontal line,
+html[data-theme="light"] .recharts-cartesian-grid-vertical line {
+  stroke: #dde3eb !important;
+}
+html[data-theme="light"] .recharts-reference-line line {
+  stroke: #c4cdd8 !important;
+}
+
+/* Table header stronger */
+html[data-theme="light"] .table-wrap table thead th {
+  background: #f3f6fa !important;
+  color: #475569 !important;
+  border-bottom: 2px solid #dde3eb !important;
+}
+
+/* Trade log source chip */
+html[data-theme="light"] [style*="background:#10b981"],
+html[data-theme="light"] [style*="background: #10b981"] {
+  background: rgba(16,185,129,0.15) !important;
+  color: #047857 !important;
+}
+html[data-theme="light"] [style*="background:#3b82f6"],
+html[data-theme="light"] [style*="background: #3b82f6"] {
+  background: rgba(37,99,235,0.15) !important;
+  color: #1d4ed8 !important;
+}
+
+/* Page header border */
+html[data-theme="light"] .page-header {
+  border-bottom: 1px solid #dde3eb;
+  background: #fafbfc;
+}
+
+/* Sidebar improvements */
+html[data-theme="light"] .sidebar {
+  background: #fff;
+  border-right: 1px solid #dde3eb;
+}
+html[data-theme="light"] .sb-logo {
+  border-bottom-color: #dde3eb;
+}
+html[data-theme="light"] .sb-user {
+  border-bottom-color: #dde3eb;
+}
+html[data-theme="light"] .sb-bottom {
+  border-top-color: #dde3eb;
+  background: #fafbfc;
+}
+html[data-theme="light"] .pnl-card {
+  background: #f3f6fa !important;
+  border-color: #dde3eb !important;
 }
