@@ -10,11 +10,17 @@ export default function TradeLog() {
   const { trades, deleteTrade, clearAllTrades, broker, stats, updateTrade, accounts, activeAccount } = useTrades();
   const { showToast } = useToast();
 
-  // Commission per trade: use account brokerage rate if set, otherwise t.fees
+  // Commission priority: stored fee → symbol override → global per-lot rate → 0
   const brokeragePerLot = stats.brokeragePerLot || 0;
-  const tradeComm = t => brokeragePerLot > 0
-    ? brokeragePerLot * (t.size || 0)
-    : (t.fees || 0);
+  const symbolComm      = stats.symbolCommissions || {};
+  const tradeComm = t => {
+    if ((t.fees||0) > 0) return t.fees;
+    const sym = (t.symbol||'').toUpperCase();
+    const sr = symbolComm[sym];
+    if (sr !== undefined && (t.size||0) > 0) return parseFloat(sr) * (t.size||0);
+    if (brokeragePerLot > 0 && (t.size||0) > 0) return brokeragePerLot * (t.size||0);
+    return 0;
+  };
   const [showModal,   setShowModal]   = useState(false);
   const [editTrade,   setEditTrade]   = useState(null);
   const [detailTrade, setDetailTrade] = useState(null);
@@ -22,37 +28,14 @@ export default function TradeLog() {
   const [search,      setSearch]      = useState('');
   const [filterSide,  setFilterSide]  = useState('All');
   const [filterStatus,setFilterStatus]= useState('All');
-  const [filterSetup,  setFilterSetup]  = useState('All');
-  const [filterEmotion,setFilterEmotion]= useState('All');
-  const [filterFrom,   setFilterFrom]   = useState('');
-  const [filterTo,     setFilterTo]     = useState('');
-  const [showMoreFilters, setShowMoreFilters] = useState(false);
   const [sortKey,     setSortKey]     = useState('exitDate');
   const [sortDir,     setSortDir]     = useState('desc');
-  const [page,        setPage]        = useState(1);
-  const PAGE_SIZE = 50;
-
-  // Unique setups and emotions — flatten arrays properly
-  const allSetups = useMemo(() => {
-    const s = new Set();
-    trades.forEach(t => {
-      if (!t.setup) return;
-      if (Array.isArray(t.setup)) t.setup.forEach(v => { if (v) s.add(v); });
-      else s.add(t.setup);
-    });
-    return ['All', ...Array.from(s).sort()];
-  }, [trades]);
-  const allEmotions = useMemo(() => ['All', ...Array.from(new Set(trades.map(t=>t.emotion).filter(Boolean))).sort()], [trades]);
 
   const filtered = useMemo(() => {
     let arr = [...trades];
-    if (search) arr=arr.filter(t=>t.symbol?.toLowerCase().includes(search.toLowerCase())||t.setup?.toLowerCase().includes(search.toLowerCase())||t.notes?.toLowerCase().includes(search.toLowerCase()));
+    if (search) arr=arr.filter(t=>t.symbol?.toLowerCase().includes(search.toLowerCase())||t.setup?.toLowerCase().includes(search.toLowerCase()));
     if (filterSide!=='All') arr=arr.filter(t=>t.side===filterSide);
     if (filterStatus!=='All') arr=arr.filter(t=>t.status===filterStatus);
-    if (filterSetup!=='All') arr=arr.filter(t=>t.setup===filterSetup||(Array.isArray(t.setup)&&t.setup.includes(filterSetup)));
-    if (filterEmotion!=='All') arr=arr.filter(t=>t.emotion===filterEmotion);
-    if (filterFrom) arr=arr.filter(t=>(t.exitDate||t.entryDate||'')>=filterFrom);
-    if (filterTo)   arr=arr.filter(t=>(t.exitDate||t.entryDate||'')<=filterTo);
     arr.sort((a,b)=>{
       let av = a[sortKey], bv = b[sortKey];
       if (sortKey === 'exitDate')  { av = `${a.exitDate||''}${a.exitTime||''}`; bv = `${b.exitDate||''}${b.exitTime||''}`; }
@@ -62,13 +45,7 @@ export default function TradeLog() {
       return sortDir==='asc' ? (av<bv?-1:av>bv?1:0) : (av>bv?-1:av<bv?1:0);
     });
     return arr;
-  }, [trades, search, filterSide, filterStatus, filterSetup, filterEmotion, filterFrom, filterTo, sortKey, sortDir]);
-
-  const totalPages  = Math.ceil(filtered.length / PAGE_SIZE);
-  const paginated   = filtered.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE);
-
-  // Reset to page 1 when filters change
-  const resetPage = () => setPage(1);
+  }, [trades, search, filterSide, filterStatus, sortKey, sortDir]);
 
   // Summary stats — respect the saved stats date range, exclude withdrawals
   const statsTrades = useMemo(() => {
@@ -152,47 +129,33 @@ export default function TradeLog() {
           );
         })()}
         {/* Filters */}
-        <div className="filter-bar" style={{marginBottom:8}}>
-          <input className="filter-inp" placeholder="🔍 Search symbol, setup, notes..." value={search} onChange={e=>{setSearch(e.target.value);resetPage();}} style={{flex:1,maxWidth:260}}/>
-          <select className="filter-inp" value={filterSide} onChange={e=>{setFilterSide(e.target.value);resetPage();}}>
+        <div className="filter-bar" style={{marginBottom:16}}>
+          <input className="filter-inp" placeholder="🔍 Search symbol or setup..." value={search} onChange={e=>setSearch(e.target.value)} style={{flex:1,maxWidth:260}}/>
+          <select className="filter-inp" value={filterSide} onChange={e=>setFilterSide(e.target.value)}>
             <option>All</option><option>Long</option><option>Short</option>
           </select>
-          <select className="filter-inp" value={filterStatus} onChange={e=>{setFilterStatus(e.target.value);resetPage();}}>
+          <select className="filter-inp" value={filterStatus} onChange={e=>setFilterStatus(e.target.value)}>
             <option>All</option><option>Win</option><option>Loss</option><option>Breakeven</option>
           </select>
-          <button className="btn btn-secondary btn-sm" onClick={()=>setShowMoreFilters(p=>!p)} style={{fontSize:12}}>
-            {showMoreFilters?'▲':'▼'} More Filters
-            {(filterSetup!=='All'||filterEmotion!=='All'||filterFrom||filterTo)&&<span style={{width:7,height:7,background:'var(--blue)',borderRadius:'50%',display:'inline-block',marginLeft:4}}/>}
-          </button>
           <div style={{marginLeft:'auto',display:'flex',gap:12,alignItems:'center'}}>
-            <span style={{fontSize:12,color:'var(--text-secondary)'}}>{filtered.length} trades</span>
+            <span style={{fontSize:12,color:'var(--text-secondary)'}}>
+              {dateRangeActive
+                ? <>{statsTrades.length} <span style={{color:'var(--text-muted)'}}>of</span> {filtered.length} trades</>
+                : <>{filtered.length} trades</>
+              }
+            </span>
             <span className={totalPnl>=0?'pos':'neg'} style={{fontWeight:700,fontSize:13}}>
-              {fmt(totalPnl)}<span style={{fontSize:10,fontWeight:400,color:'var(--text-muted)',marginLeft:4}}>gross</span>
+              {fmt(totalPnl)}
+              <span style={{fontSize:10,fontWeight:400,color:'var(--text-muted)',marginLeft:4}}>gross{dateRangeActive?' · in range':''}</span>
             </span>
           </div>
         </div>
-        {/* Extra filters */}
-        {showMoreFilters && (
-          <div className="filter-bar" style={{marginBottom:8,padding:'10px 12px',background:'var(--bg-card)',border:'1px solid var(--border)',borderRadius:8}}>
-            <select className="filter-inp" value={filterSetup} onChange={e=>{setFilterSetup(e.target.value);resetPage();}}>
-              {allSetups.map(s=><option key={s}>{s}</option>)}
-            </select>
-            <select className="filter-inp" value={filterEmotion} onChange={e=>{setFilterEmotion(e.target.value);resetPage();}}>
-              {allEmotions.map(s=><option key={s}>{s}</option>)}
-            </select>
-            <input type="date" className="filter-inp" value={filterFrom} onChange={e=>{setFilterFrom(e.target.value);resetPage();}} title="From date"/>
-            <span style={{color:'var(--text-muted)',fontSize:12}}>→</span>
-            <input type="date" className="filter-inp" value={filterTo} onChange={e=>{setFilterTo(e.target.value);resetPage();}} title="To date"/>
-            {(filterSetup!=='All'||filterEmotion!=='All'||filterFrom||filterTo) && (
-              <button className="btn btn-ghost btn-sm" onClick={()=>{setFilterSetup('All');setFilterEmotion('All');setFilterFrom('');setFilterTo('');resetPage();}}>✕ Clear</button>
-            )}
-          </div>
-        )}
 
         {/* Trade History */}
         <div className="card" style={{padding:0}}>
           <div style={{padding:'14px 18px',borderBottom:'1px solid var(--border)',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
             <span style={{fontWeight:700,fontSize:14}}>Trade History <span style={{color:'var(--text-muted)',fontSize:12,fontWeight:400}}>{dateRangeActive ? `${statsTrades.length} of ${filtered.length}` : filtered.length} trades</span></span>
+            <button className="btn-icon" title="Filters">⚙ Filters</button>
           </div>
           <div className="table-wrap">
             <table>
@@ -220,7 +183,7 @@ export default function TradeLog() {
                     </div>
                   </td></tr>
                 )}
-                {paginated.map(t=>(
+                {filtered.map(t=>(
                   <tr key={t.id} onClick={()=>setDetailTrade(t)} style={t.isWithdrawal?{background:'rgba(239,68,68,.04)',opacity:0.85}:{}}>
                     <td style={{color:'var(--text-secondary)',fontSize:12}}>
                       <div>{fmtDate(t.entryDate)} {t.entryTime}</div>
@@ -315,26 +278,10 @@ export default function TradeLog() {
               </tbody>
             </table>
           </div>
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 16px',borderTop:'1px solid var(--border)'}}>
-              <span style={{fontSize:12,color:'var(--text-muted)'}}>
-                {(page-1)*PAGE_SIZE+1}–{Math.min(page*PAGE_SIZE,filtered.length)} of {filtered.length}
-              </span>
-              <div style={{display:'flex',gap:4}}>
-                <button className="btn btn-ghost btn-sm" onClick={()=>setPage(1)} disabled={page===1}>«</button>
-                <button className="btn btn-ghost btn-sm" onClick={()=>setPage(p=>p-1)} disabled={page===1}>‹</button>
-                {Array.from({length:Math.min(5,totalPages)},(_,i)=>{
-                  const p = Math.max(1,Math.min(totalPages-4,page-2))+i;
-                  return <button key={p} className={`btn btn-sm ${page===p?'btn-primary':'btn-ghost'}`} onClick={()=>setPage(p)}>{p}</button>;
-                })}
-                <button className="btn btn-ghost btn-sm" onClick={()=>setPage(p=>p+1)} disabled={page===totalPages}>›</button>
-                <button className="btn btn-ghost btn-sm" onClick={()=>setPage(totalPages)} disabled={page===totalPages}>»</button>
-              </div>
-            </div>
-          )}
         </div>
       </div>
+
+      {/* Detail modal */}
       {detailTrade && (
         <div className="modal-backdrop" onClick={e=>e.target===e.currentTarget&&setDetailTrade(null)}>
           <div className="modal" style={{maxWidth:520}}>
@@ -385,16 +332,6 @@ export default function TradeLog() {
                   ['Exit', detailTrade.exitPrice ? `$${(detailTrade.exitPrice).toFixed(detailTrade.exitPrice>100?2:5)} · ${fmtDate(detailTrade.exitDate||detailTrade.entryDate)} ${detailTrade.exitTime||'—'}` : '—'],
                   ['Setup',detailTrade.setup||'—'],['Timeframe',detailTrade.timeframe||'—'],
                   ['Emotion',detailTrade.emotion||'—'],['Tags',(detailTrade.tags||[]).join(', ')||'—'],
-                  ['Hold Time', (() => {
-                    if (!detailTrade.entryDate || !detailTrade.exitDate) return '—';
-                    const e = new Date(`${detailTrade.entryDate}T${detailTrade.entryTime||'00:00'}`);
-                    const x = new Date(`${detailTrade.exitDate}T${detailTrade.exitTime||'00:00'}`);
-                    const mins = (x-e)/60000;
-                    if (mins <= 0) return '—';
-                    if (mins < 60) return `${Math.round(mins)}m`;
-                    if (mins < 1440) return `${Math.floor(mins/60)}h ${Math.round(mins%60)}m`;
-                    return `${Math.floor(mins/1440)}d ${Math.floor((mins%1440)/60)}h`;
-                  })()],
                 ].map(([l,v])=>(
                   <div key={l}><div style={{fontSize:10,color:'var(--text-muted)',fontWeight:600,marginBottom:2}}>{l}</div><div style={{fontSize:12}}>{v}</div></div>
                 ))}
