@@ -1,532 +1,1918 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { useTrades } from '../context/TradesContext';
+import { useToast } from '../context/ToastContext';
 import { v4 as uuidv4 } from 'uuid';
-import { getSupabaseClient, loadAllFromSupabase, saveToSupabase, isSupabaseConfigured } from '../lib/supabase';
+import * as XLSX from 'xlsx';
+import {
+  getSupabaseConfig, saveSupabaseConfig, clearSupabaseConfig,
+  testSupabaseConnection, isSupabaseConfigured, SETUP_SQL,
+} from '../lib/supabase';
 
-const Ctx = createContext();
-
-const TRADES_KEY    = 'tf_trades';
-const SETTINGS_KEY  = 'tf_settings';
-const PLAYBOOKS_KEY = 'tf_playbooks';
-const JOURNAL_KEY   = 'tf_journal';
-const BROKER_KEY    = 'tf_broker';
-
-const ACCOUNTS_KEY  = 'tf_accounts';
-
-const defaultSettings = {
-  accountSize: 10000, currency: 'USD', timezone: 'UTC', riskPerTrade: 1, brokeragePerLot: 0,
-  symbolCommissions: {},
-  statsStartDate: '', statsEndDate: '',
-  traderName: 'Trader',
-  customSetups:    [],
-  customMistakes:  [],
-  customChecklist: [],
-  removedSetups:    [],   // built-in setup options the user has removed
-  removedMistakes:  [],   // built-in mistake options the user has removed
-  removedChecklist: [],   // built-in checklist items the user has removed
+// ── Universal cell readers ─────────────────────────────────────────────────
+const cellStr = (row, i) => {
+  const v = row == null ? undefined : row[i];
+  if (v == null) return '';
+  if (v instanceof Date) return v.toString();
+  return String(v).trim();
+};
+const cellNum = (row, i) => {
+  const v = row == null ? undefined : row[i];
+  if (v == null || v === '') return NaN;
+  if (typeof v === 'number') return v;
+  return parseFloat(String(v).replace(/,/g, ''));
 };
 
-const sampleTrades = [
-  { id: uuidv4(), symbol:'XAUUSD', side:'Short', status:'Win',  entryDate:'2026-04-17', entryTime:'13:36', exitDate:'2026-04-17', exitTime:'13:43', entryPrice:4786.99, exitPrice:4782.79, size:3,   fees:0.5, pnl:1229.70, rMultiple:2.1, setup:'Breakout',       timeframe:'5m', emotion:'Confident', tags:['london','breakout'] },
-  { id: uuidv4(), symbol:'XAUUSD', side:'Short', status:'Loss', entryDate:'2026-04-17', entryTime:'13:15', exitDate:'2026-04-17', exitTime:'13:31', entryPrice:4784.13, exitPrice:4788.20, size:1,   fees:0.4, pnl:-417.30, rMultiple:-1.0, setup:'VWAP Rejection', timeframe:'1m', emotion:'Anxious',   tags:['london'] },
-  { id: uuidv4(), symbol:'XAUUSD', side:'Long',  status:'Loss', entryDate:'2026-04-17', entryTime:'12:35', exitDate:'2026-04-17', exitTime:'13:07', entryPrice:4789.60, exitPrice:4788.39, size:0.6, fees:0.3, pnl:-78.12,  rMultiple:-0.5, setup:'Momentum',       timeframe:'1m', emotion:'FOMO',      tags:['newyork'] },
-  { id: uuidv4(), symbol:'XAUUSD', side:'Short', status:'Loss', entryDate:'2026-04-16', entryTime:'12:12', exitDate:'2026-04-16', exitTime:'12:35', entryPrice:4785.61, exitPrice:4789.51, size:0.6, fees:0.3, pnl:-239.64, rMultiple:-1.1, setup:'VWAP Rejection', timeframe:'5m', emotion:'Anxious',   tags:['london'] },
-  { id: uuidv4(), symbol:'XAUUSD', side:'Short', status:'Win',  entryDate:'2026-04-16', entryTime:'10:09', exitDate:'2026-04-16', exitTime:'10:45', entryPrice:4785.61, exitPrice:4782.79, size:0.5, fees:0.2, pnl:6.75,    rMultiple:0.1,  setup:'Scalp',          timeframe:'1m', emotion:'Calm',      tags:[] },
-  { id: uuidv4(), symbol:'EURUSD', side:'Long',  status:'Loss', entryDate:'2026-04-15', entryTime:'09:30', exitDate:'2026-04-15', exitTime:'10:15', entryPrice:1.0850,  exitPrice:1.0820,  size:1,   fees:0.5, pnl:-147.91, rMultiple:-1.0, setup:'Breakout',       timeframe:'15m', emotion:'Neutral',  tags:['london'] },
-  { id: uuidv4(), symbol:'XAUUSD', side:'Long',  status:'Win',  entryDate:'2026-04-14', entryTime:'14:20', exitDate:'2026-04-14', exitTime:'15:10', entryPrice:4760.00, exitPrice:4772.50, size:0.5, fees:0.3, pnl:306.56,  rMultiple:1.8,  setup:'Support Bounce', timeframe:'15m', emotion:'Confident', tags:['newyork'] },
-  { id: uuidv4(), symbol:'XAUUSD', side:'Long',  status:'Win',  entryDate:'2026-04-14', entryTime:'09:45', exitDate:'2026-04-14', exitTime:'10:30', entryPrice:4755.00, exitPrice:4766.00, size:0.5, fees:0.3, pnl:285.92,  rMultiple:2.0,  setup:'Breakout',       timeframe:'5m', emotion:'Confident', tags:['london'] },
-  { id: uuidv4(), symbol:'XAUUSD', side:'Short', status:'Win',  entryDate:'2026-04-13', entryTime:'11:00', exitDate:'2026-04-13', exitTime:'11:45', entryPrice:4770.00, exitPrice:4758.00, size:0.5, fees:0.3, pnl:181.20,  rMultiple:1.5,  setup:'VWAP Rejection', timeframe:'5m', emotion:'Calm',      tags:['london'] },
-  { id: uuidv4(), symbol:'XAUUSD', side:'Long',  status:'Win',  entryDate:'2026-04-10', entryTime:'09:45', exitDate:'2026-04-10', exitTime:'10:30', entryPrice:4755.00, exitPrice:4766.00, size:0.5, fees:0.3, pnl:118.50,  rMultiple:1.2,  setup:'Breakout',       timeframe:'5m', emotion:'Confident', tags:['london'] },
-  { id: uuidv4(), symbol:'XAUUSD', side:'Short', status:'Loss', entryDate:'2026-04-09', entryTime:'13:10', exitDate:'2026-04-09', exitTime:'13:50', entryPrice:4780.00, exitPrice:4783.50, size:0.5, fees:0.3, pnl:-115.16, rMultiple:-0.8, setup:'Double Top',     timeframe:'5m', emotion:'Frustrated', tags:[] },
-  { id: uuidv4(), symbol:'XAUUSD', side:'Long',  status:'Win',  entryDate:'2026-04-08', entryTime:'10:00', exitDate:'2026-04-08', exitTime:'11:00', entryPrice:4740.00, exitPrice:4748.00, size:0.5, fees:0.3, pnl:57.91,   rMultiple:1.0,  setup:'Support Bounce', timeframe:'15m', emotion:'Calm',     tags:['london'] },
-  { id: uuidv4(), symbol:'XAUUSD', side:'Short', status:'Loss', entryDate:'2026-04-07', entryTime:'14:00', exitDate:'2026-04-07', exitTime:'14:30', entryPrice:4750.00, exitPrice:4754.80, size:0.5, fees:0.3, pnl:-394.80, rMultiple:-1.2, setup:'Reversal',       timeframe:'5m', emotion:'Anxious',   tags:[] },
-];
-
-// Ensure every trade has the minimum required fields to prevent UI crashes
-function normalizeTrade(t) {
-  return {
-    side:      'Long',
-    status:    'Breakeven',
-    symbol:    '—',
-    entryDate: '',
-    entryTime: '',
-    exitDate:  '',
-    exitTime:  '',
-    entryPrice:0,
-    exitPrice: null,
-    size:      0,
-    fees:      0,
-    pnl:       0,
-    rMultiple: 0,
-    setup:     '',
-    timeframe: '',
-    emotion:   '',
-    tags:      [],
-    notes:     '',
-    mistakes:  [],
-    ...t,
-    // Force these to always be strings/arrays even if import gives null
-    side:   t.side   || 'Long',
-    status: t.status || 'Breakeven',
-    symbol: t.symbol || '—',
-    tags:   Array.isArray(t.tags) ? t.tags : [],
-    mistakes: Array.isArray(t.mistakes) ? t.mistakes : [],
-  };
+// ── MT5 timestamp parser ───────────────────────────────────────────────────
+function parseMT5Time(val) {
+  if (val == null || val === '') return { date: '', time: '' };
+  let str = '';
+  if (val instanceof Date) {
+    const pad = n => String(n).padStart(2, '0');
+    str = `${val.getFullYear()}.${pad(val.getMonth()+1)}.${pad(val.getDate())} ${pad(val.getHours())}:${pad(val.getMinutes())}:${pad(val.getSeconds())}`;
+  } else {
+    str = String(val).trim();
+  }
+  const parts = str.split(' ');
+  return { date: (parts[0] || '').replace(/\./g, '-'), time: (parts[1] || '').slice(0, 5) };
 }
 
-export function TradesProvider({ children }) {
-  const [trades,    setTrades]    = useState(() => {
-    const raw = (load(TRADES_KEY, sampleTrades)).map(normalizeTrade);
-    const seen = new Set();
-    return raw.filter(t => {
-      if (!t.positionId) return true;
-      if (seen.has(t.positionId)) return false;
-      seen.add(t.positionId);
-      return true;
-    });
-  });
-  const [settings,  setSettings]  = useState(() => load(SETTINGS_KEY,  defaultSettings));
-  const [accounts,  setAccounts]  = useState(() => load(ACCOUNTS_KEY,  []));
-  const [activeAccountId, setActiveAccountId] = useState(null);
-  const [playbooks, setPlaybooks] = useState(() => load(PLAYBOOKS_KEY, []));
-  const [journal,   setJournal]   = useState(() => load(JOURNAL_KEY,   {}));
-  const [broker,    setBroker]    = useState(() => load(BROKER_KEY,    { connected: false, name: '', token: '', accountId: '', platform: 'MT4' }));
-  const [cloudStatus, setCloudStatus] = useState('idle');
-  const cloudLoadDone = useRef(false); // prevents overwriting cloud data before initial load
+function cleanSymbol(sym) {
+  if (!sym) return '';
+  return String(sym).replace(/[!._]R$/i, '').trim();
+}
 
-  const sbRef = useRef(getSupabaseClient());
+// ── MT5 Excel parser ───────────────────────────────────────────────────────
+// Works with xlsx output from any option combination (raw:true or raw:false)
+// Handles: string dates, Date objects, string numbers, real numbers, null cells
+function parseMT5Excel(data) {
+  const trades = [];
+  const errors = [];
+  let dataStartRow = -1;
+  let dataEndRow   = data.length;
 
-  // On mount: load from Supabase, overwriting local cache
-  useEffect(() => {
-    const client = sbRef.current;
-    if (!client) {
-      cloudLoadDone.current = true; // no cloud, allow local saves immediately
-      return;
+  // Find column header row — handle MT5 format variations
+  // Looks for: Time/Open Time/Entry | Position | Symbol | Type
+  for (let i = 0; i < data.length; i++) {
+    const row = data[i];
+    if (!row || !row.length) continue;
+    const cells = row.map(c => String(c||'').toLowerCase().trim());
+
+    // Stop at Orders or Deals section (after we've found the start)
+    if (dataStartRow >= 0) {
+      if (cells[0] === 'orders' || cells[0] === 'deals') { dataEndRow = i; break; }
     }
-    setCloudStatus('syncing');
-    loadAllFromSupabase(client).then(data => {
-      cloudLoadDone.current = true; // now allow persist to save to cloud
-      if (!data) { setCloudStatus('error'); return; }
-      if (data[TRADES_KEY]) {
-        const raw = data[TRADES_KEY].map(normalizeTrade);
-        const seen = new Set();
-        const deduped = raw.filter(t => { if (!t.positionId) return true; if (seen.has(t.positionId)) return false; seen.add(t.positionId); return true; });
-        setTrades(deduped);
-        save(TRADES_KEY, deduped);
-      }
-      if (data[SETTINGS_KEY])  { setSettings({ ...defaultSettings, ...data[SETTINGS_KEY] }); save(SETTINGS_KEY, data[SETTINGS_KEY]); }
-      if (data[ACCOUNTS_KEY])  { setAccounts(data[ACCOUNTS_KEY]);  save(ACCOUNTS_KEY,  data[ACCOUNTS_KEY]);  }
-      if (data[JOURNAL_KEY])   { setJournal(data[JOURNAL_KEY]);    save(JOURNAL_KEY,   data[JOURNAL_KEY]);   }
-      if (data[PLAYBOOKS_KEY]) { setPlaybooks(data[PLAYBOOKS_KEY]); save(PLAYBOOKS_KEY, data[PLAYBOOKS_KEY]); }
-      if (data['tf_pw_hash'] && !localStorage.getItem('tf_pw_hash')) {
-        localStorage.setItem('tf_pw_hash', data['tf_pw_hash']);
-      }
-      setCloudStatus('synced');
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
-  // Helper: save to localStorage + cloud (only after initial cloud load)
-  const persist = useCallback((key, value) => {
-    save(key, value);
-    if (cloudLoadDone.current) {
-      saveToSupabase(sbRef.current, key, value);
+    // Find "Position" in any of first 3 columns alongside "Symbol"
+    const posColIdx = cells.slice(0,4).findIndex(c => c === 'position');
+    const symColIdx = cells.slice(0,6).findIndex(c => c === 'symbol');
+    const timeInRow = cells.slice(0,2).some(c => c.includes('time') || c === 'open' || c === 'entry');
+
+    if (posColIdx >= 0 && symColIdx > posColIdx && timeInRow) {
+      dataStartRow = i + 1;
     }
-  }, []);
+  }
 
-  useEffect(() => { persist(TRADES_KEY,    trades);    }, [trades,    persist]);
-  useEffect(() => { persist(SETTINGS_KEY,  settings);  }, [settings,  persist]);
-  useEffect(() => { persist(ACCOUNTS_KEY,  accounts);  }, [accounts,  persist]);
-  useEffect(() => { persist(PLAYBOOKS_KEY, playbooks); }, [playbooks, persist]);
-  useEffect(() => { persist(JOURNAL_KEY,   journal);   }, [journal,   persist]);
-  useEffect(() => { save(BROKER_KEY, broker);          }, [broker]);
+  if (dataStartRow === -1) {
+    throw new Error(
+      'No Positions section found. ' +
+      'File has ' + data.length + ' rows. ' +
+      'Expected column headers: Time | Position | Symbol | Type | Volume | Price | S/L | T/P | Time | Price | Commission | Swap | Profit'
+    );
+  }
 
-  // Called from Settings when user saves new Supabase credentials
-  const refreshSupabaseClient = useCallback(() => {
-    sbRef.current = getSupabaseClient();
-    if (!sbRef.current) { setCloudStatus('idle'); cloudLoadDone.current = true; return; }
-    setCloudStatus('syncing');
-    cloudLoadDone.current = false; // block saves until load completes
-    loadAllFromSupabase(sbRef.current).then(data => {
-      cloudLoadDone.current = true;
-      if (!data) { setCloudStatus('error'); return; }
-      if (data[TRADES_KEY]) {
-        const raw = data[TRADES_KEY].map(normalizeTrade);
-        const seen = new Set();
-        const deduped = raw.filter(t => { if (!t.positionId) return true; if (seen.has(t.positionId)) return false; seen.add(t.positionId); return true; });
-        setTrades(deduped);
-        save(TRADES_KEY, deduped);
-      }
-      if (data[SETTINGS_KEY])  { setSettings({ ...defaultSettings, ...data[SETTINGS_KEY] }); save(SETTINGS_KEY, data[SETTINGS_KEY]); }
-      if (data[ACCOUNTS_KEY])  { setAccounts(data[ACCOUNTS_KEY]);  save(ACCOUNTS_KEY,  data[ACCOUNTS_KEY]);  }
-      if (data[JOURNAL_KEY])   { setJournal(data[JOURNAL_KEY]);    save(JOURNAL_KEY,   data[JOURNAL_KEY]);   }
-      if (data[PLAYBOOKS_KEY]) { setPlaybooks(data[PLAYBOOKS_KEY]); save(PLAYBOOKS_KEY, data[PLAYBOOKS_KEY]); }
-      if (data['tf_pw_hash'] && !localStorage.getItem('tf_pw_hash')) {
-        localStorage.setItem('tf_pw_hash', data['tf_pw_hash']);
-      }
-      setCloudStatus('synced');
-    });
-  }, []);
+  for (let i = dataStartRow; i < dataEndRow; i++) {
+    const row = data[i];
+    if (!row || !row.length) continue;
 
-  const addTrade    = useCallback(t  => setTrades(p => [normalizeTrade({ ...t, id: uuidv4() }), ...p]), []);
-  const updateTrade = useCallback((id, u) => setTrades(p => p.map(t => t.id === id ? normalizeTrade({ ...t, ...u }) : t)), []);
-  const deleteTrade = useCallback(id => setTrades(p => p.filter(t => t.id !== id)), []);
+    const posId   = cellNum(row, 1);
+    const vol     = cellStr(row, 4);
+    const profit  = cellNum(row, 12);
+    const timeVal = row[0];
 
-  const undoLastImport = useCallback(() => {
+    const hasTime    = timeVal instanceof Date || /^\d{4}[.\/\-]/.test(cellStr(row, 0));
+    const hasPos     = !isNaN(posId) && posId > 0;
+    const hasProfit  = !isNaN(profit);
+    const isOrderRow = vol.includes("/");
+    const symbol     = cleanSymbol(row[2]);
+    const hasSymbol  = symbol && symbol.length > 0;  // withdrawals/deposits have no symbol
+
+    if (!hasTime || !hasPos || !hasProfit || isOrderRow || !hasSymbol) continue;
+
     try {
-      const stack = JSON.parse(localStorage.getItem('tf_undo_stack')||'[]');
-      if (!stack.length) return false;
-      const { trades: prevTrades } = stack.shift();
-      setTrades(prevTrades.map(normalizeTrade));
-      localStorage.setItem('tf_undo_stack', JSON.stringify(stack));
-      return true;
-    } catch { return false; }
-  }, []);
+      const eT   = parseMT5Time(timeVal);
+      const xT   = parseMT5Time(row[8]);
+      const comm = cellNum(row, 10) || 0;
+      const swap = cellNum(row, 11) || 0;
+      // Match sync server formula exactly:
+      // pnl  = profit + swap  (GROSS — commission NOT deducted)
+      // fees = abs(commission) (stored separately)
+      const pnl  = parseFloat((profit + swap).toFixed(2));
+      const fees = parseFloat(Math.abs(comm).toFixed(2));
+      const sl   = cellNum(row, 6);
+      const tp   = cellNum(row, 7);
 
-  // clearTrades: if an account is selected, only removes that account's trades.
-  // If "All Accounts" is active, removes every trade (full wipe).
-  const clearAllTrades = useCallback((activeAccId, allAccs) => {
-    if (activeAccId && allAccs?.length) {
-      const activeAcc = allAccs.find(a => a.id === activeAccId);
-      if (activeAcc) {
-        // Delete only trades belonging to this account
-        setTrades(prev => prev.filter(t => {
-          if (t.accountId) return t.accountId !== activeAccId;
-          // Legacy: filter by source string
-          return t.source !== activeAcc.source && t.source !== activeAcc.name;
-        }));
-        return;
+      trades.push({
+        id:         uuidv4(),
+        symbol:     symbol,
+        side:       cellStr(row, 3).toLowerCase() === 'buy' ? 'Long' : 'Short',
+        status:     pnl > 0.01 ? 'Win' : pnl < -0.01 ? 'Loss' : 'Breakeven',
+        entryDate:  eT.date, entryTime:  eT.time,
+        exitDate:   xT.date, exitTime:   xT.time,
+        entryPrice: cellNum(row, 5) || 0,
+        exitPrice:  cellNum(row, 9) || 0,
+        stopLoss:   !isNaN(sl) && sl > 0 ? sl : null,
+        takeProfit: !isNaN(tp) && tp > 0 ? tp : null,
+        size:       parseFloat(vol) || 0,
+        fees, pnl, rMultiple: 0,
+        setup: '', timeframe: '', emotion: '',
+        tags: [], notes: '', mistakes: [],
+        source: 'MT5 Import',
+        positionId: String(Math.round(posId)),
+      });
+    } catch (err) {
+      errors.push('Row ' + (i+1) + ': ' + err.message);
+    }
+  }
+  return { trades, errors };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CSV parser
+// ─────────────────────────────────────────────────────────────────────────────
+function parseCSV(text) {
+  const lines = text.trim().split('\n');
+  if (lines.length < 2) throw new Error('CSV must have a header row + at least one data row');
+  const headers = lines[0].split(',').map(h => h.trim());
+  return lines.slice(1).filter(l => l.trim()).map(line => {
+    const vals = line.split(',');
+    const obj = {};
+    headers.forEach((h, i) => { obj[h] = vals[i]?.trim() || ''; });
+    return {
+      ...obj, id: uuidv4(),
+      entryPrice: parseFloat(obj.entryPrice) || 0,
+      exitPrice:  parseFloat(obj.exitPrice)  || 0,
+      size:       parseFloat(obj.size) || parseFloat(obj.quantity) || 0,
+      fees:       parseFloat(obj.fees) || 0,
+      pnl:        parseFloat(obj.pnl)  || 0,
+      rMultiple:  parseFloat(obj.rMultiple) || 0,
+      tags:       obj.tags ? obj.tags.split(';').map(t => t.trim()).filter(Boolean) : [],
+      mistakes:   [],
+    };
+  });
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MT5 SCREENSHOT IMPORT  —  Tesseract.js OCR (free, local) + optional Gemini
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Parse MT5 raw OCR text into trade objects
+function parseMT5Text(rawText, brokerOffsetHrs, userOffsetHrs) {
+  const diffMins = Math.round((parseFloat(userOffsetHrs) - parseFloat(brokerOffsetHrs)) * 60);
+  const pad = n => String(n).padStart(2,'0');
+
+  const convertDt = (dtStr) => {
+    if (!dtStr) return { date:'', time:'' };
+    const m = dtStr.match(/(\d{4})[.\-](\d{2})[.\-](\d{2})\s+(\d{2}):(\d{2})(?::(\d{2}))?/);
+    if (!m) return { date:'', time:'' };
+    const [,yr,mo,dy,hr,mn] = m;
+    const base = new Date(Date.UTC(+yr,+mo-1,+dy,+hr,+mn,0));
+    const adj  = new Date(base.getTime() + diffMins*60000);
+    return {
+      date: `${adj.getUTCFullYear()}-${pad(adj.getUTCMonth()+1)}-${pad(adj.getUTCDate())}`,
+      time: `${pad(adj.getUTCHours())}:${pad(adj.getUTCMinutes())}`,
+    };
+  };
+
+  const priceKey = (sym, ep, xp, size) =>
+    `${sym}-${parseFloat(ep).toFixed(3)}-${parseFloat(xp).toFixed(3)}-${parseFloat(size||0).toFixed(2)}`;
+
+  const trades = [];
+
+  // ── PRIORITY 1: Detail popup format ───────────────────────────────────────
+  const posIdMatch = rawText.match(/#(\d{5,12})/);
+  if (posIdMatch) {
+    const positionId = posIdMatch[1];
+    const lines = rawText.split('\n').map(l => l.trim());
+
+    // Only look at text AFTER the position ID line — list view prices appear before it
+    const posIdLineIdx = lines.findIndex(l => l.includes('#' + positionId));
+    const popupLines = posIdLineIdx >= 0 ? lines.slice(posIdLineIdx) : lines;
+    const popupText  = popupLines.join('\n');
+
+    // Get symbol/direction/size from the position ID line itself
+    const posIdLine = posIdLineIdx >= 0 ? lines[posIdLineIdx] : '';
+    const symMatch = posIdLine.match(/([A-Z]+[!.]?[A-Z0-9]*)\s+(buy|sell)\s+([\d.]+)/i)
+                  || popupText.match(/([A-Z]+[!.]?[A-Z0-9]*)\s+(buy|sell)\s+([\d.]+)/i);
+
+    // Find price pair ONLY in popup lines (after position ID)
+    let ep = null, xp = null, pnl = 0;
+    for (const line of popupLines) {
+      const m = line.match(/([\d]{3,}\.[\d]+)\s*[→\->—–]+\s*([\d]{3,}\.[\d]+)\s+([-]?[\d]+\.[\d]{2})(?![.\d])/);
+      if (m) {
+        const candidate = parseFloat(m[3]);
+        if (Math.abs(candidate) < 2000) { // exclude year-like values
+          ep = m[1]; xp = m[2]; pnl = candidate; break;
+        }
       }
     }
-    // No account selected → full wipe
-    setTrades([]);
-    try { localStorage.removeItem(TRADES_KEY); } catch {}
-  }, []);
-  const importTrades = useCallback((arr, brokerSource, accountId) => {
-    // Save undo snapshot before importing
-    setTrades(prev => {
-      try {
-        const stack = JSON.parse(localStorage.getItem('tf_undo_stack')||'[]');
-        stack.unshift({ trades: prev, time: Date.now() });
-        localStorage.setItem('tf_undo_stack', JSON.stringify(stack.slice(0,5)));
-      } catch {}
-      return prev; // no actual change yet
-    });
-    const matchedAccount = accountId ? accounts.find(a => a.id === accountId) : null;
-    const sourceOverride = matchedAccount ? (matchedAccount.source || matchedAccount.name) : null;
-
-    const normalized = arr.map(t => normalizeTrade({
-      ...t,
-      id: t.id || uuidv4(),
-      ...(accountId      ? { accountId }     : {}),
-      ...(sourceOverride ? { source: sourceOverride } : {}),
-    }));
-
-    // UNIFIED MERGE STRATEGY:
-    // - positionId match → update existing trade
-    // - No positionId match → try fuzzy match by symbol+entryPrice+exitPrice+size
-    //   (allows screenshot imports to match Excel imports of same trade)
-    // - No match at all → add as brand new trade
-    // - NEVER delete any trade
-    const KEEP_FIELDS = [
-      'notes','setup','emotion','tags','mistakes','rMultiple','status','timeframe',
-    ];
-
-    // Dedup key: entryPrice (rounded) + size + date
-    // For list-view screenshot trades, exitDate IS the exit date shown in MT5
-    // For Excel trades, exitDate is the close date from the Excel file
-    // Both sides use exitDate preferentially so they match
-    const tradeKey = (t, dateOverride) => {
-      if (t.isWithdrawal || t.isDeposit) {
-        const d = dateOverride || t.exitDate || t.entryDate || '';
-        return `wd-${Math.round(Math.abs(t.pnl||0))}-${d}`;
+    // Fallback: price pair without P&L on same line
+    if (!ep) {
+      for (const line of popupLines) {
+        const m = line.match(/([\d]{3,}\.[\d]+)\s*[→\->—–]+\s*([\d]{3,}\.[\d]+)/);
+        if (m) { ep = m[1]; xp = m[2]; break; }
       }
-      if (!t.entryPrice) return null;
-      // Always prefer exitDate — list view only has exit date, Excel has both
-      const d = dateOverride || t.exitDate || t.entryDate || '';
-      return `${Math.round(parseFloat(t.entryPrice))}-${parseFloat(t.size||0).toFixed(2)}-${d}`;
-    };
-
-    // Get adjacent dates (±1 day) to handle timezone-shifted dates
-    const adjacentDates = (dateStr) => {
-      if (!dateStr) return [dateStr];
-      const d = new Date(dateStr + 'T12:00:00Z');
-      const prev = new Date(d); prev.setDate(d.getDate() - 1);
-      const next = new Date(d); next.setDate(d.getDate() + 1);
-      return [dateStr, prev.toISOString().slice(0,10), next.toISOString().slice(0,10)];
-    };
-
-    const tradeKeys = (t) => {
-      const baseDate = t.exitDate || t.entryDate || '';
-      const withDates = adjacentDates(baseDate).map(d => tradeKey(t, d)).filter(Boolean);
-      // Also add a date-free key as ultimate fallback (entry price + size only)
-      if (t.entryPrice && !t.isWithdrawal && !t.isDeposit) {
-        withDates.push(`nd-${Math.round(parseFloat(t.entryPrice))}-${parseFloat(t.size||0).toFixed(2)}`);
-      }
-      return withDates;
-    };
-
-    setTrades(prev => {
-      const matchedIds    = new Set();
-      const existingKeySet = new Set(prev.flatMap(t => tradeKeys(t)));
-      const existingPosIds = new Set(prev.map(t => t.positionId).filter(Boolean));
-
-      const updated = prev.map(existing => {
-        // 1. positionId exact match
-        let incoming = existing.positionId
-          ? normalized.find(t => t.positionId === existing.positionId)
-          : null;
-
-        // 2. tradeKey match with ±1 day tolerance
-        if (!incoming) {
-          const existingKeys = tradeKeys(existing);
-          incoming = normalized.find(t =>
-            !matchedIds.has(existing.id) &&
-            tradeKeys(t).some(k => existingKeys.includes(k))
-          );
+    }
+    // Fallback P&L: scan popup lines (skip datetime lines)
+    if (!pnl && ep && xp) {
+      const epR = Math.round(parseFloat(ep)), xpR = Math.round(parseFloat(xp));
+      for (const line of popupLines) {
+        if (/\d{4}[.\-]\d{2}[.\-]\d{2}/.test(line)) continue; // skip date lines
+        const nums = [...line.matchAll(/([-]?\d+\.\d{2})(?![.\d])/g)].map(m=>parseFloat(m[1]));
+        for (const n of nums) {
+          const abs = Math.abs(n);
+          if (abs > 0.01 && abs < 2000 && Math.round(abs) !== epR && Math.round(abs) !== xpR)
+            if (abs > Math.abs(pnl)) pnl = n;
         }
-
-        if (!incoming) return existing;
-        matchedIds.add(existing.id);
-
-        const preserved = {};
-        KEEP_FIELDS.forEach(k => { if (existing[k] !== undefined) preserved[k] = existing[k]; });
-
-        const wasImported = existing.accountId || (existing.source && existing.source !== 'Manual');
-        if (wasImported) {
-          if (existing.pnl  != null) preserved.pnl  = existing.pnl;
-          if (existing.fees != null) preserved.fees = existing.fees;
-          if (existing.size != null) preserved.size = existing.size;
-        }
-
-        const keepPositionId = existing.positionId && !existing.positionId.startsWith('ss-')
-          ? existing.positionId
-          : incoming.positionId || existing.positionId;
-
-        return { ...existing, ...incoming, ...preserved, id: existing.id, positionId: keepPositionId, accountId: incoming.accountId || existing.accountId, source: incoming.source || existing.source };
-      });
-
-      const brandNew = normalized.filter(t => {
-        if (t.positionId && existingPosIds.has(t.positionId)) return false;
-        return !tradeKeys(t).some(k => existingKeySet.has(k));
-      });
-      const merged = [...brandNew, ...updated];
-
-      // Final dedup — catches anything that slipped through the brandNew filter
-      // Priority: existing trades (in `updated`) beat newly added ones (in `brandNew`)
-      // Use nd-key (entry price + size) as the tiebreaker
-      const seenPositions = new Set();
-      const seenNdKeys    = new Set();
-      const deduped = [];
-      // Process `updated` first (existing trades take priority)
-      for (const t of updated) {
-        const ndKey = t.entryPrice && !t.isWithdrawal && !t.isDeposit
-          ? `nd-${Math.round(parseFloat(t.entryPrice))}-${parseFloat(t.size||0).toFixed(2)}`
-          : null;
-        if (t.positionId) seenPositions.add(t.positionId);
-        if (ndKey)        seenNdKeys.add(ndKey);
-        deduped.push(t);
       }
-      // Now add brandNew only if not already covered
-      for (const t of brandNew) {
-        if (t.positionId && seenPositions.has(t.positionId)) continue;
-        const ndKey = t.entryPrice && !t.isWithdrawal && !t.isDeposit
-          ? `nd-${Math.round(parseFloat(t.entryPrice))}-${parseFloat(t.size||0).toFixed(2)}`
-          : null;
-        if (ndKey && seenNdKeys.has(ndKey)) continue; // existing trade with same price+size exists
-        if (ndKey) seenNdKeys.add(ndKey);
-        if (t.positionId) seenPositions.add(t.positionId);
-        deduped.push(t);
+    }
+
+    // Entry→Exit datetime pair — also search only in popup text
+    const dtPairMatch = popupText.match(/(\d{4}[.\-]\d{2}[.\-]\d{2}\s+\d{2}:\d{2}(?::\d{2})?)\s*[→\->—–]+\s*(\d{4}[.\-]\d{2}[.\-]\d{2}\s+\d{2}:\d{2}(?::\d{2})?)/);
+    const slMatch     = popupText.match(/S\/L[:\s]+([\d.]+)/i);
+    const tpMatch     = popupText.match(/T\/P[:\s]+([\d.]+)/i);
+    const chargeMatch = popupText.match(/[Cc]harges?[:\s]+([-\d.]+)/);
+
+    if (symMatch && ep) {
+      const [,sym,dir,size] = symMatch;
+      const cleanSym = sym.replace(/[!.]R$/i,'').replace(/[!.]$/,'').toUpperCase();
+      const dt1 = dtPairMatch ? convertDt(dtPairMatch[1]) : { date:'', time:'' };
+      const dt2 = dtPairMatch ? convertDt(dtPairMatch[2]) : dt1;
+      const fees = chargeMatch ? Math.abs(parseFloat(chargeMatch[1])||0) : 0;
+
+      trades.push({
+        symbol:     cleanSym,
+        side:       dir.toLowerCase()==='sell'?'Short':'Long',
+        size:       parseFloat(size)||0,
+        entryPrice: parseFloat(ep)||0,
+        exitPrice:  parseFloat(xp)||0,
+        entryDate:  dt1.date, entryTime: dt1.time,
+        exitDate:   dt2.date, exitTime:  dt2.time,
+        pnl:        parseFloat(pnl.toFixed(2)),
+        fees,
+        stopLoss:   slMatch?parseFloat(slMatch[1]):null,
+        takeProfit: tpMatch?parseFloat(tpMatch[1]):null,
+        status:     pnl>0.5?'Win':pnl<-0.5?'Loss':'Breakeven',
+        source:     'MT5 Screenshot',
+        positionId,
+      });
+    }
+    return trades;
+  }
+
+  // ── PRIORITY 2: List view — multiple trades ────────────────────────────────
+  // Line A: "XAUUSD!R buy 0.3  -5.47"
+  // Line B: "4710.628 → 4710.4455  2026.05.13 09:27:29"
+  const lines = rawText.split('\n').map(l=>l.trim()).filter(Boolean);
+  for (let i = 0; i < lines.length - 1; i++) {
+    const lineA = lines[i];
+    const lineB = lines[i + 1];
+
+    const mA = lineA.match(/([A-Z]+[!.]?[A-Z0-9]*)\s+(buy|sell)\s+([\d.]+)\s+([-\d.]+)/i);
+    if (!mA) continue;
+
+    const mB = lineB.match(/([\d.]+)\s*[→\->—–]+\s*([\d.]+)\s+(\d{4}[.\-]\d{2}[.\-]\d{2}\s+\d{2}:\d{2}(?::\d{2})?)/);
+    if (!mB) continue;
+
+    const [, sym, dir, size, pnlStr] = mA;
+    const [, ep, xp, dtStr] = mB;
+    const exitDt   = convertDt(dtStr);
+    const cleanSym = sym.replace(/[!.]R$/i,'').replace(/[!.]$/,'').toUpperCase();
+
+    // Use price direction to determine sign — OCR often loses the minus sign
+    const epF = parseFloat(ep), xpF = parseFloat(xp);
+    const isLong  = dir.toLowerCase() === 'buy';
+    // Only trust price direction if prices are reasonable (both > 0 and similar magnitude)
+    const pricesValid = epF > 0 && xpF > 0 && Math.abs(epF - xpF) / Math.max(epF, xpF) < 0.05; // within 5% of each other
+    const priceWin = isLong ? (xpF > epF) : (xpF < epF);
+    const pnlRaw  = parseFloat(pnlStr) || 0;
+    let pnl;
+    if (pricesValid) {
+      // Trust price direction to fix OCR sign errors
+      const pnlAbs = Math.abs(pnlRaw);
+      pnl = priceWin ? pnlAbs : -pnlAbs;
+    } else {
+      // Prices look garbled by OCR — trust the raw P&L value as-is
+      pnl = pnlRaw;
+    }
+
+    trades.push({
+      symbol:     cleanSym,
+      side:       dir.toLowerCase() === 'sell' ? 'Short' : 'Long',
+      size:       parseFloat(size) || 0,
+      entryPrice: parseFloat(ep) || 0,
+      exitPrice:  parseFloat(xp) || 0,
+      entryDate:  exitDt.date,   entryTime: '',
+      exitDate:   exitDt.date,   exitTime:  exitDt.time,
+      pnl,        fees: 0,
+      status:     pnl > 0.5 ? 'Win' : pnl < -0.5 ? 'Loss' : 'Breakeven',
+      source:     'MT5 Screenshot',
+      // Price-based positionId — entry+exit+size+date, rounded for OCR tolerance
+      positionId: `ss-${Math.round(parseFloat(ep))}-${Math.round(parseFloat(xp))}-${parseFloat(size).toFixed(2)}-${exitDt.date}`,
+    });
+    i++;
+  }
+
+  // ── PRIORITY 3: "Balance" rows = withdrawals ──────────────────────────────
+  // MT5 Deals view shows withdrawals as:
+  // "Balance" / "-180.00" / "OP: 106697" / "2026.05.15 09:39:39"
+  // OR a line containing "Balance" followed by a negative number
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].toLowerCase().trim();
+    // Match "Balance" standalone or "Balance -180.00" on same line
+    const sameLineMatch = lines[i].match(/^[Bb]alance\s+([-\d\s]+\.?\d*)/);
+    const isBalanceLine = line === 'balance' || sameLineMatch;
+    if (!isBalanceLine) continue;
+
+    // Get the amount
+    let pnl = 0;
+    if (sameLineMatch) {
+      pnl = parseFloat(sameLineMatch[1].replace(/\s/g,''));
+    } else if (i+1 < lines.length) {
+      pnl = parseFloat(lines[i+1].replace(/\s/g,''));
+    }
+
+    if (isNaN(pnl) || pnl >= 0) continue; // only process negative (withdrawals)
+
+    // Find the datetime in next few lines
+    for (let j = i+1; j < Math.min(i+5, lines.length); j++) {
+      const dtM = lines[j].match(/(\d{4}[.\-]\d{2}[.\-]\d{2}\s+\d{2}:\d{2}(?::\d{2})?)/);
+      if (dtM) {
+        const dt = convertDt(dtM[1]);
+        trades.push({
+          symbol:'WITHDRAWAL', side:'Long', size:0, entryPrice:0, exitPrice:0,
+          entryDate:dt.date, entryTime:dt.time, exitDate:dt.date, exitTime:dt.time,
+          pnl, fees:0, status:'Breakeven', isWithdrawal:true, source:'MT5 Screenshot',
+          positionId:`wd-${parseFloat(pnl).toFixed(2)}-${dt.date}`,
+        });
+        break;
       }
-      return deduped;
-    });
-  }, [accounts]);
-  const updateJournal = useCallback((tradeId, data) => setJournal(p => ({ ...p, [tradeId]: { ...(p[tradeId] || {}), ...data } })), []);
-  const getJournal  = useCallback(tradeId => journal[tradeId] || {}, [journal]);
+    }
+  }
 
-  const addPlaybook    = useCallback(p  => setPlaybooks(prev => [...prev, { ...p, id: uuidv4() }]), []);
-  const updatePlaybook = useCallback((id, u) => setPlaybooks(p => p.map(x => x.id === id ? { ...x, ...u } : x)), []);
-  const deletePlaybook = useCallback(id => setPlaybooks(p => p.filter(x => x.id !== id)), []);
+  return trades;
+}
 
-  // Account helpers
-  const addAccount    = useCallback(a => setAccounts(p => [...p, { ...a, id: uuidv4() }]), []);
-  const updateAccount = useCallback((id, u) => setAccounts(p => p.map(a => a.id === id ? { ...a, ...u } : a)), []);
-  const deleteAccount = useCallback(id => { setAccounts(p => p.filter(a => a.id !== id)); if (activeAccountId === id) setActiveAccountId(null); }, [activeAccountId]);
+function ScreenshotImportTab({ onPreview, onError, error, reset }) {
+  const { settings } = useTrades();
+  const [image,      setImage]      = useState(null);   // { file, dataUrl, base64, type }
+  const [loading,    setLoading]    = useState(false);
+  const [status,     setStatus]     = useState('');
+  const [rawText,    setRawText]    = useState('');
+  const [showRaw,    setShowRaw]    = useState(false);
+  const [geminiKey,  setGeminiKey]  = useState(() => localStorage.getItem('tf_gemini_key')||'');
+  const [showKey,    setShowKey]    = useState(false);
+  const [brokerTz,   setBrokerTz]   = useState('+3');   // MT5 server offset (EET = UTC+3)
+  const [userTz,     setUserTz]     = useState('+5.5'); // user's local offset
+  const fileRef = useRef();
 
-  // Active account object (null if "All Accounts")
-  const activeAccount = accounts.find(a => a.id === activeAccountId) || null;
+  const TZ_OPTS = ['-12','-11','-10','-9','-8','-7','-6','-5','-4','-3','-2','-1',
+                   '0','+1','+2','+3','+3.5','+4','+4.5','+5','+5.5','+5.75','+6',
+                   '+6.5','+7','+8','+9','+9.5','+10','+11','+12'];
 
-  // Account-filtered trades:
-  // Primary: match by accountId
-  // Fallback: source string match
-  // Also include untagged Excel imports (source='MT5 Import', no accountId) only in "All Accounts"
-  // view — once an account is selected we strictly match by accountId or source
-  const accountTrades = useMemo(() => {
-    if (!activeAccount) return trades;
-    return trades.filter(t => {
-      if (t.accountId) return t.accountId === activeAccount.id;
-      // Legacy: source string match
-      if (t.source === activeAccount.source || t.source === activeAccount.name) return true;
-      return false;
-    });
-  }, [trades, activeAccount]);
+  const saveGeminiKey = (k) => { setGeminiKey(k); localStorage.setItem('tf_gemini_key',k); };
 
-  const stats = useMemo(() => {
-    const effectiveAccountSize = activeAccount?.accountSize || settings.accountSize || 10000;
-    // Use account date range if set (non-empty), otherwise fall back to global settings
-    const effectiveStartDate   = activeAccount?.statsStartDate || settings.statsStartDate || '';
-    const effectiveEndDate     = activeAccount?.statsEndDate   || settings.statsEndDate   || '';
-    const effectiveBrokerage   = (activeAccount?.brokeragePerLot != null && activeAccount.brokeragePerLot !== '')
-      ? parseFloat(activeAccount.brokeragePerLot) || 0
-      : settings.brokeragePerLot || 0;
-
-    const statsTrades = accountTrades.filter(t => {
-      if (t.isWithdrawal) return false;
-      if (t.isDeposit)    return false;
-      if (t.isOpen || t.status === 'Open') return false;  // exclude floating unrealized P&L
-      const d = t.exitDate || t.entryDate || '';
-      if (effectiveStartDate && d < effectiveStartDate) return false;
-      if (effectiveEndDate   && d > effectiveEndDate)   return false;
-      return true;
-    });
-    return {
-      ...calcStats(statsTrades, effectiveBrokerage, settings.symbolCommissions || {}),
-      accountSize:     effectiveAccountSize,
-      currency:        settings.currency     || 'USD',
-      riskPerTrade:    settings.riskPerTrade || 1,
-      brokeragePerLot: effectiveBrokerage,
-      symbolCommissions: settings.symbolCommissions || {},
-      statsStartDate:  effectiveStartDate,
-      statsEndDate:    effectiveEndDate,
-      totalWithdrawals: accountTrades.filter(t=>t.isWithdrawal).reduce((s,t)=>s+Math.abs(t.pnl||0),0),
-      withdrawalCount:  accountTrades.filter(t=>t.isWithdrawal).length,
+  const handleFile = (file) => {
+    if (!file) return;
+    reset();
+    setStatus('');
+    setRawText('');
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const dataUrl = ev.target.result;
+      const base64  = dataUrl.split(',')[1];
+      setImage({ file, dataUrl, base64, type: file.type||'image/jpeg' });
     };
-  }, [accountTrades, settings, activeAccount]);
+    reader.readAsDataURL(file);
+  };
+
+  // ── OCR via Tesseract.js (free, local) ────────────────────────────────────
+  const runOCR = async () => {
+    setLoading(true); setStatus('Loading OCR engine...'); onError(''); onPreview(null);
+    try {
+      // Dynamically load Tesseract from CDN
+      if (!window.Tesseract) {
+        await new Promise((res,rej) => {
+          const s = document.createElement('script');
+          s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+          s.onload = res; s.onerror = rej;
+          document.head.appendChild(s);
+        });
+      }
+      setStatus('Reading text from screenshot...');
+      const result = await window.Tesseract.recognize(image.dataUrl, 'eng', {
+        logger: m => { if (m.status==='recognizing text') setStatus(`OCR: ${Math.round(m.progress*100)}%`); }
+      });
+      const raw = result.data.text;
+      setRawText(raw);
+      const trades = parseMT5Text(raw, brokerTz, userTz);
+      if (!trades.length) {
+        onError('No trades found. The OCR text is shown below — if it looks garbled try Gemini instead.');
+        setShowRaw(true);
+        setStatus('');
+      } else {
+        setStatus(`✅ Found ${trades.length} trade${trades.length!==1?'s':''} via OCR`);
+        onPreview(trades);
+      }
+    } catch(e) {
+      onError('OCR error: ' + e.message);
+      setStatus('');
+    } finally { setLoading(false); }
+  };
+
+  // ── Gemini Vision API (free tier, optional) ────────────────────────────────
+  const runGemini = async () => {
+    if (!geminiKey) { onError('Enter your free Gemini API key first'); return; }
+    setLoading(true); setStatus('Sending to Gemini AI...'); onError(''); onPreview(null);
+    try {
+      const prompt = `Extract ALL completed trades from this MT5 screenshot. Return ONLY a JSON array, no other text:
+[{"symbol":"XAUUSD","side":"Long","size":0.3,"entryPrice":4536.913,"exitPrice":4543.4595,"entryDatetime":"2026.05.05 09:37:13","exitDatetime":"2026.05.05 09:37:13","pnl":196.40,"fees":0}]
+Rules: side=Long for buy, Short for sell. symbol without !R suffix. fees=abs(Charges). pnl=gross profit shown. If only one datetime visible use it for both entry and exit.`;
+
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
+        { method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ contents:[{ parts:[
+            { inline_data:{ mime_type: image.type, data: image.base64 } },
+            { text: prompt }
+          ]}]})
+        }
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message||'Gemini error');
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text||'';
+      const clean = text.replace(/```json|```/g,'').trim();
+      const raw = JSON.parse(clean);
+
+      // Convert times and normalise
+      const pad = n => String(n).padStart(2,'0');
+      const diffMins = Math.round((parseFloat(userTz)-parseFloat(brokerTz))*60);
+      const conv = dtStr => {
+        const m = dtStr?.match(/(\d{4})[.\-](\d{2})[.\-](\d{2})\s+(\d{2}):(\d{2})/);
+        if (!m) return { date:'', time:'' };
+        const [,yr,mo,dy,hr,mn]=m;
+        const adj = new Date(Date.UTC(+yr,+mo-1,+dy,+hr,+mn)+diffMins*60000);
+        return { date:`${adj.getUTCFullYear()}-${pad(adj.getUTCMonth()+1)}-${pad(adj.getUTCDate())}`, time:`${pad(adj.getUTCHours())}:${pad(adj.getUTCMinutes())}` };
+      };
+      const trades = raw.map(t => {
+        const e=conv(t.entryDatetime), x=conv(t.exitDatetime||t.entryDatetime);
+        const pnl=parseFloat(t.pnl)||0;
+        return {
+          symbol: (t.symbol||'').replace(/[!.]R$/i,'').toUpperCase(),
+          side:   t.side==='Short'?'Short':'Long',
+          size:   parseFloat(t.size)||0,
+          entryPrice: parseFloat(t.entryPrice)||0,
+          exitPrice:  parseFloat(t.exitPrice)||0,
+          entryDate: e.date, entryTime: e.time,
+          exitDate:  x.date, exitTime:  x.time,
+          pnl, fees: Math.abs(parseFloat(t.fees)||0),
+          status: pnl>0.5?'Win':pnl<-0.5?'Loss':'Breakeven',
+          source: 'MT5 Screenshot',
+        };
+      });
+      if (!trades.length) throw new Error('No trades extracted');
+      setStatus(`✅ Gemini found ${trades.length} trade${trades.length!==1?'s':''}`);
+      onPreview(trades);
+    } catch(e) {
+      onError('Gemini error: ' + e.message);
+      setStatus('');
+    } finally { setLoading(false); }
+  };
 
   return (
-    <Ctx.Provider value={{
-      trades: accountTrades,
-      allTrades: trades,
-      settings, setSettings, stats, playbooks, journal,
-      accounts, addAccount, updateAccount, deleteAccount,
-      activeAccountId, setActiveAccountId, activeAccount,
-      addTrade, updateTrade, deleteTrade, clearAllTrades, importTrades,
-      updateJournal, getJournal,
-      addPlaybook, updatePlaybook, deletePlaybook,
-      broker, setBroker,
-      cloudStatus, refreshSupabaseClient,
-      undoLastImport,
-    }}>
-      {children}
-    </Ctx.Provider>
+    <div>
+      {/* Gemini key + Timezone settings */}
+      <div className="card" style={{marginBottom:14}}>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
+
+          {/* Timezone */}
+          <div>
+            <div style={{fontSize:13,fontWeight:700,marginBottom:10}}>🕐 Timezone Conversion</div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+              <div className="form-group" style={{marginBottom:0}}>
+                <label className="form-label">MT5 Server Time (UTC offset)</label>
+                <select className="form-control" value={brokerTz} onChange={e=>setBrokerTz(e.target.value)}>
+                  {TZ_OPTS.map(o=><option key={o} value={o}>UTC{o}</option>)}
+                </select>
+                <div style={{fontSize:10,color:'var(--text-muted)',marginTop:3}}>Usually UTC+2 or UTC+3 for most brokers</div>
+              </div>
+              <div className="form-group" style={{marginBottom:0}}>
+                <label className="form-label">Your Local Time (UTC offset)</label>
+                <select className="form-control" value={userTz} onChange={e=>setUserTz(e.target.value)}>
+                  {TZ_OPTS.map(o=><option key={o} value={o}>UTC{o}</option>)}
+                </select>
+                <div style={{fontSize:10,color:'var(--text-muted)',marginTop:3}}>India = UTC+5.5 · UAE = UTC+4</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Gemini key */}
+          <div>
+            <div style={{fontSize:13,fontWeight:700,marginBottom:4}}>✨ Gemini API Key <span style={{fontSize:11,color:'var(--text-muted)',fontWeight:400}}>(optional — better accuracy)</span></div>
+            <div style={{fontSize:11,color:'var(--text-muted)',marginBottom:8}}>
+              Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer" style={{color:'var(--blue-bright)'}}>aistudio.google.com</a> — no credit card needed. Without it, local OCR is used (free but less accurate).
+            </div>
+            <div style={{position:'relative'}}>
+              <input className="form-control" type={showKey?'text':'password'}
+                placeholder="AIza..." value={geminiKey}
+                onChange={e=>saveGeminiKey(e.target.value)}
+                style={{paddingRight:50}}/>
+              <button type="button" onClick={()=>setShowKey(p=>!p)}
+                style={{position:'absolute',right:8,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',color:'var(--text-muted)',cursor:'pointer',fontSize:11}}>
+                {showKey?'Hide':'Show'}
+              </button>
+            </div>
+            {geminiKey && <div style={{fontSize:10,color:'#4ade80',marginTop:4}}>✓ Gemini key saved</div>}
+          </div>
+        </div>
+      </div>
+
+      {/* Upload area */}
+      <div
+        onDrop={e=>{e.preventDefault();handleFile(e.dataTransfer.files[0]);}}
+        onDragOver={e=>e.preventDefault()}
+        onClick={()=>!image&&fileRef.current?.click()}
+        style={{
+          border:`2px dashed ${image?'var(--blue)':'var(--border)'}`,
+          borderRadius:10, marginBottom:14,
+          padding: image?0:'40px 20px',
+          textAlign:'center', cursor:image?'default':'pointer',
+          background:'var(--bg-hover)', overflow:'hidden',
+        }}>
+        <input ref={fileRef} type="file" accept="image/*" style={{display:'none'}}
+          onChange={e=>handleFile(e.target.files?.[0])}/>
+        {!image ? (
+          <div>
+            <div style={{fontSize:36,marginBottom:8}}>📸</div>
+            <div style={{fontWeight:700,fontSize:14,marginBottom:4}}>Drop MT5 screenshot here or click to upload</div>
+            <div style={{fontSize:12,color:'var(--text-muted)'}}>Upload the Deals panel screenshot from your MT5 app — list view or detail popup both work</div>
+          </div>
+        ) : (
+          <div style={{position:'relative'}}>
+            <img src={image.dataUrl} alt="MT5 screenshot"
+              style={{maxWidth:'100%',maxHeight:380,display:'block',margin:'0 auto'}}/>
+            <button onClick={e=>{e.stopPropagation();setImage(null);reset();setStatus('');setRawText('');}}
+              style={{position:'absolute',top:8,right:8,background:'rgba(0,0,0,.7)',color:'#fff',border:'none',borderRadius:6,padding:'4px 10px',cursor:'pointer',fontSize:12}}>
+              ✕ Remove
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Action buttons */}
+      {image && (
+        <div style={{display:'flex',gap:10,marginBottom:14,flexWrap:'wrap'}}>
+          <button className="btn btn-secondary" onClick={runOCR} disabled={loading}>
+            {loading&&!geminiKey?'⏳ Processing...':'🔍 Read with OCR (free, local)'}
+          </button>
+          <button className="btn btn-primary" onClick={runGemini} disabled={loading||!geminiKey}
+            style={{opacity:geminiKey?1:0.5}} title={geminiKey?'':'Add Gemini key above'}>
+            {loading&&geminiKey?'⏳ Processing...':'✨ Read with Gemini AI (more accurate)'}
+          </button>
+          {!geminiKey && <span style={{fontSize:11,color:'var(--text-muted)',alignSelf:'center'}}>← Add free Gemini key for better accuracy</span>}
+        </div>
+      )}
+
+      {status && <div style={{fontSize:13,color:'var(--blue-bright)',marginBottom:10,fontWeight:600}}>{status}</div>}
+
+      {/* Raw OCR text for debugging */}
+      {showRaw && rawText && (
+        <div style={{marginBottom:14}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+            <span style={{fontSize:12,fontWeight:700,color:'var(--text-secondary)'}}>Raw OCR text (for debugging):</span>
+            <button className="btn btn-ghost btn-sm" onClick={()=>setShowRaw(false)}>Hide</button>
+          </div>
+          <pre style={{background:'var(--bg-card)',border:'1px solid var(--border)',borderRadius:7,padding:'10px 12px',fontSize:11,fontFamily:'monospace',color:'var(--text-secondary)',overflowX:'auto',whiteSpace:'pre-wrap',maxHeight:200,overflow:'auto'}}>{rawText}</pre>
+        </div>
+      )}
+
+      {/* How it works */}
+      <div style={{background:'rgba(59,130,246,.06)',border:'1px solid rgba(59,130,246,.15)',borderRadius:8,padding:'12px 14px',fontSize:12,color:'var(--text-secondary)',lineHeight:1.8}}>
+        <strong style={{color:'var(--blue-bright)'}}>Two ways to import:</strong>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginTop:8}}>
+          <div style={{background:'rgba(74,222,128,.06)',border:'1px solid rgba(74,222,128,.2)',borderRadius:7,padding:'10px 12px'}}>
+            <div style={{fontWeight:700,color:'#4ade80',marginBottom:4}}>✅ Best — Detail Popup (one trade at a time)</div>
+            <ol style={{margin:0,paddingLeft:16,lineHeight:2}}>
+              <li>Open MT5 → <strong>Deals</strong> tab</li>
+              <li>Tap any trade to open its detail popup</li>
+              <li>Screenshot just that popup</li>
+              <li>Upload here → gets real position ID, both entry & exit times, S/L, T/P, charges</li>
+              <li>Repeat for each trade</li>
+            </ol>
+            <div style={{marginTop:6,fontSize:11,color:'#4ade80'}}>✓ Real position ID = never duplicates with Excel imports</div>
+          </div>
+          <div style={{background:'rgba(255,255,255,.03)',border:'1px solid rgba(255,255,255,.08)',borderRadius:7,padding:'10px 12px'}}>
+            <div style={{fontWeight:700,color:'var(--text-secondary)',marginBottom:4}}>📋 Quick — List View (multiple trades)</div>
+            <ol style={{margin:0,paddingLeft:16,lineHeight:2}}>
+              <li>Open MT5 → <strong>Deals</strong> tab</li>
+              <li>Screenshot the trade list</li>
+              <li>Upload here → extracts all visible trades at once</li>
+            </ol>
+            <div style={{marginTop:6,fontSize:11,color:'var(--text-muted)'}}>Only gets exit time, no S/L or T/P. Uses price-based dedup.</div>
+          </div>
+        </div>
+        <div style={{marginTop:8,color:'var(--text-muted)'}}>💡 Set the correct timezone offsets above so times convert correctly to your local time.</div>
+      </div>
+    </div>
   );
 }
 
-export const useTrades = () => useContext(Ctx);
+export function ImportPage() {
+  const { importTrades, trades, accounts, activeAccountId, undoLastImport, stats, settings } = useTrades();
+  const { showToast } = useToast();
+  const [tab,       setTab]       = useState('mt5');
+  const [preview,   setPreview]   = useState(null);
+  const [error,     setError]     = useState('');
+  const [warnings,  setWarnings]  = useState([]);
+  const [success,   setSuccess]   = useState('');
+  const [loading,   setLoading]   = useState(false);
+  const [csvText,   setCsvText]   = useState('');
+  const [importStats, setImportStats] = useState(null);
+  // Check localStorage for undo availability — persists across tab navigation
+  const [hasUndo, setHasUndo] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('tf_undo_stack')||'[]').length > 0; }
+    catch { return false; }
+  });
 
-function load(key, def) {
-  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : def; } catch { return def; }
-}
-function save(key, val) {
-  try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
-}
+  // Refresh undo availability whenever we return to this tab
+  useEffect(() => {
+    const checkUndo = () => {
+      try { setHasUndo(JSON.parse(localStorage.getItem('tf_undo_stack')||'[]').length > 0); }
+      catch { setHasUndo(false); }
+    };
+    checkUndo();
+    window.addEventListener('focus', checkUndo);
+    return () => window.removeEventListener('focus', checkUndo);
+  }, []);
+  // Pre-populate from sidebar's active account
+  const [importAccountId, setImportAccountId] = useState(activeAccountId || '');
+  const fileInputRef = useRef();
 
-function calcStats(trades, brokeragePerLot = 0, symbolCommissions = {}) {
-  const empty = {
-    totalPnl:0, totalGrossPnl:0, totalBrokerage:0,
-    winRate:0, totalTrades:0, totalWins:0, totalLosses:0,
-    avgWin:0, avgLoss:0, profitFactor:0, avgR:0,
-    bestTrade:0, worstTrade:0, expectancy:0, maxDrawdown:0,
-    winStreak:0, lossStreak:0, grossProfit:0, grossLoss:0,
-    avgHoldMins:0, totalCommissions:0, totalFees:0, maxConsecWins:0, maxConsecLosses:0,
-  };
-  if (!trades.length) return empty;
+  // Keep importAccountId in sync when sidebar account changes
+  useEffect(() => {
+    setImportAccountId(activeAccountId || '');
+  }, [activeAccountId]);
 
-  // Commission priority:
-  // 1. t.fees > 0  → stored fee (Excel import OR manually edited) — always wins
-  // 2. symbolCommissions[symbol] → per-lot rate for this symbol (from Settings)
-  // 3. brokeragePerLot → global per-lot fallback
-  // 4. 0
-  const tradeComm = t => {
-    if ((t.fees || 0) > 0) return t.fees;
-    const sym = (t.symbol || '').toUpperCase();
-    const symRate = symbolCommissions[sym];
-    if (symRate !== undefined && (t.size || 0) > 0) return parseFloat(symRate) * (t.size || 0);
-    if (brokeragePerLot > 0 && (t.size || 0) > 0) return brokeragePerLot * (t.size || 0);
+  const reset = () => { setPreview(null); setError(''); setWarnings([]); setSuccess(''); setImportStats(null); };
+
+  // Get commission rate from active account or global settings
+  const commissionRate = useMemo(() => {
+    const acc = accounts.find(a => a.id === importAccountId);
+    return parseFloat(acc?.brokeragePerLot ?? stats?.brokeragePerLot ?? settings?.brokeragePerLot ?? 0);
+  }, [accounts, importAccountId, stats, settings]);
+
+  const calcComm = (t) => {
+    if (t.fees > 0) return t.fees; // already has commission (e.g. from Excel or detail popup)
+    if (commissionRate > 0 && t.size > 0 && !t.isWithdrawal && !t.isDeposit) {
+      return parseFloat((commissionRate * t.size).toFixed(2));
+    }
     return 0;
   };
-
-  // Net P&L = gross P&L minus commission
-  const netPnl = t => (t.pnl || 0) - tradeComm(t);
-
-  const totalGrossPnl   = trades.reduce((s,t) => s + (t.pnl||0), 0);
-  const totalCommission = trades.reduce((s,t) => s + tradeComm(t), 0);
-  const totalPnl        = trades.reduce((s,t) => s + netPnl(t), 0);
-
-  // Re-classify Win/Loss based on status field (respects manual Breakeven override)
-  // Breakeven trades count in P&L but NOT in win rate / trade count denominator
-  const wins     = trades.filter(t => t.status === 'Win');
-  const losses   = trades.filter(t => t.status === 'Loss');
-  const wlTrades = trades.filter(t => t.status === 'Win' || t.status === 'Loss'); // excludes Breakeven
-  const gp = wins.reduce((s,t)   => s + netPnl(t), 0);
-  const gl = Math.abs(losses.reduce((s,t) => s + netPnl(t), 0));
-
-  // Streaks — only Win/Loss count, breakeven skipped
-  const sorted = [...trades].filter(t=>t.entryDate)
-    .sort((a,b) => `${a.entryDate}${a.entryTime||''}`.localeCompare(`${b.entryDate}${b.entryTime||''}`));
-  let ws=0,ls=0,maxWs=0,maxLs=0,cw=0,cl=0;
-  sorted.forEach(t => {
-    if (t.status==='Win')      { cw++; cl=0; maxWs=Math.max(maxWs,cw); }
-    else if (t.status==='Loss'){ cl++; cw=0; maxLs=Math.max(maxLs,cl); }
-    // Breakeven: don't reset streaks, don't count
-  });
-  if (sorted.length) {
-    const last = sorted[sorted.length-1];
-    ws = last.status==='Win'  ? cw : 0;
-    ls = last.status==='Loss' ? cl : 0;
-  }
-
-  // Max drawdown using net P&L
-  let peak=0, cum=0, maxDD=0;
-  sorted.forEach(t => { cum+=netPnl(t); peak=Math.max(peak,cum); maxDD=Math.max(maxDD,peak-cum); });
-
-  // Avg hold time
-  const holdMins = trades.map(t => {
+  const handleExcelFile = async (file) => {
+    reset(); setLoading(true);
     try {
-      const e = new Date(`${t.entryDate}T${t.entryTime||'00:00'}`);
-      const x = new Date(`${t.exitDate||t.entryDate}T${t.exitTime||'00:00'}`);
-      return Math.abs((x-e)/60000);
-    } catch { return 0; }
-  });
-  const avgHold = holdMins.reduce((s,v)=>s+v,0) / holdMins.length;
-
-  // Win rate denominator = only W/L trades (breakeven excluded)
-  const wr  = wlTrades.length ? (wins.length / wlTrades.length) * 100 : 0;
-  const pf  = gl > 0 ? gp/gl : gp > 0 ? Infinity : 0;
-  const exp = trades.length ? totalPnl / trades.length : 0;
-
-  const netPnlValues = trades.map(t => netPnl(t));
-
-  return {
-    totalPnl,
-    totalGrossPnl:  parseFloat(totalGrossPnl.toFixed(2)),
-    totalBrokerage: parseFloat(totalCommission.toFixed(2)), // kept for back-compat
-    winRate: wr,
-    totalTrades:  wlTrades.length,
-    totalAllTrades: trades.length,
-    totalWins:    wins.length,
-    totalLosses:  losses.length,
-    totalBreakeven: trades.length - wlTrades.length,
-    avgWin:   wins.length   ? gp/wins.length   : 0,
-    avgLoss:  losses.length ? gl/losses.length : 0,
-    profitFactor: pf,
-    avgR: trades.reduce((s,t)=>s+(t.rMultiple||0),0)/trades.length,
-    bestTrade:  netPnlValues.length ? Math.max(...netPnlValues) : 0,
-    worstTrade: netPnlValues.length ? Math.min(...netPnlValues) : 0,
-    expectancy: exp, maxDrawdown: maxDD, winStreak: ws, lossStreak: ls,
-    maxConsecWins: maxWs, maxConsecLosses: maxLs,
-    grossProfit: gp, grossLoss: gl,
-    avgHoldMins: avgHold,
-    totalFees:        parseFloat(trades.reduce((s,t)=>s+(t.fees||0),0).toFixed(2)),
-    totalCommissions: parseFloat(totalCommission.toFixed(2)), // commission using effective rate
+      const buffer = await file.arrayBuffer();
+      const wb   = XLSX.read(buffer, { type: 'array', cellDates: false });
+      const ws   = wb.Sheets[wb.SheetNames[0]];
+      const data = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null });
+      const { trades: parsed, errors } = parseMT5Excel(data);
+      if (parsed.length === 0) {
+        setError('No trades found. The file was read but no valid position rows detected.');
+        return;
+      }
+      setPreview(parsed);
+      if (errors.length > 0) setWarnings(errors.slice(0, 5));
+    } catch (err) {
+      setError('Error: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
   };
+
+  // ── Handle CSV ──────────────────────────────────────────────────────────
+  const handleCSV = () => {
+    reset();
+    try {
+      const parsed = parseCSV(csvText);
+      setPreview(parsed);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  // ── Import confirmed ────────────────────────────────────────────────────
+  const handleImport = () => {
+    if (!preview?.length) return;
+    const chosenAccountId = importAccountId || null;
+    const chosenAccount = accounts.find(a => a.id === chosenAccountId);
+
+    // Count duplicates before importing
+    const existingPosIds = new Set(trades.map(t=>t.positionId).filter(Boolean));
+    const existingKeys   = new Set(trades.map(t => {
+      if (t.isWithdrawal||t.isDeposit) return `wd-${Math.round(Math.abs(t.pnl||0))}-${t.exitDate||t.entryDate||''}`;
+      if (!t.entryPrice) return null;
+      return `${Math.round(parseFloat(t.entryPrice))}-${parseFloat(t.size||0).toFixed(2)}-${t.exitDate||t.entryDate||''}`;
+    }).filter(Boolean));
+
+    let duplicates = 0, added = 0;
+    preview.forEach(t => {
+      if (isDuplicate(t)) duplicates++; else added++;
+    });
+
+    importTrades(preview.map(t => isDuplicate(t) ? t : { ...t, fees: calcComm(t) }), null, chosenAccountId);
+    const accLabel = chosenAccount ? `→ ${chosenAccount.name}` : '(no account assigned)';
+    setImportStats({ added, duplicates, total: preview.length });
+    setHasUndo(true);
+    showToast({
+      title: `Import complete · ${accLabel}`,
+      message: `${added} new trade${added!==1?'s':''} added${duplicates>0?` · ${duplicates} duplicate${duplicates!==1?'s':''} merged`:''}`,
+    });
+    setPreview(null);
+    setCsvText('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const isDuplicate = (t) => {
+    const existingPosIds = new Set(trades.map(x=>x.positionId).filter(Boolean));
+    if (t.positionId && existingPosIds.has(t.positionId)) return true;
+
+    // Get dates to check including ±1 day for timezone shifts
+    const baseDate = t.exitDate || t.entryDate || '';
+    const datesToCheck = [baseDate];
+    if (baseDate) {
+      const d = new Date(baseDate + 'T12:00:00Z');
+      const prev = new Date(d); prev.setDate(d.getDate()-1);
+      const next = new Date(d); next.setDate(d.getDate()+1);
+      datesToCheck.push(prev.toISOString().slice(0,10), next.toISOString().slice(0,10));
+    }
+
+    if (t.isWithdrawal || t.isDeposit) {
+      const amt = Math.round(Math.abs(t.pnl||0));
+      return trades.some(x => (x.isWithdrawal||x.isDeposit) &&
+        Math.round(Math.abs(x.pnl||0)) === amt &&
+        datesToCheck.includes(x.exitDate||x.entryDate||''));
+    }
+    if (!t.entryPrice) return false;
+    const ep = Math.round(parseFloat(t.entryPrice));
+    const sz = parseFloat(t.size||0).toFixed(2);
+    const ndKey = `nd-${ep}-${sz}`;
+    return trades.some(x => {
+      if (!x.entryPrice) return false;
+      const xep = Math.round(parseFloat(x.entryPrice));
+      const xsz = parseFloat(x.size||0).toFixed(2);
+      if (xep !== ep || xsz !== sz) return false;
+      // Match by date ±1 day OR by price+size alone (fallback for timezone mismatches)
+      const xd = x.exitDate || x.entryDate || '';
+      return datesToCheck.includes(xd) || `nd-${xep}-${xsz}` === ndKey;
+    });
+  };
+  const exportAll = () => {
+    if (!trades.length) return;
+    const headers = ['symbol','side','status','entryDate','entryTime','exitDate','exitTime','entryPrice','exitPrice','size','fees','pnl','rMultiple','setup','timeframe','notes','emotion'];
+    const rows = trades.map(t => headers.map(k => { const v = t[k]; return Array.isArray(v) ? v.join(';') : (v ?? ''); }).join(','));
+    const csv = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `tradefolio_export_${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+  };
+
+  const totalPnl = preview?.reduce((s, t) => s + (t.pnl || 0), 0) || 0;
+  const wins     = preview?.filter(t => t.status === 'Win').length || 0;
+  const previewSorted = useMemo(() => {
+    if (!preview) return [];
+    return [...preview].sort((a,b) => {
+      const da = a.exitDate||a.entryDate||'', db = b.exitDate||b.entryDate||'';
+      if (da !== db) return db.localeCompare(da);
+      return (b.exitTime||b.entryTime||'').localeCompare(a.exitTime||a.entryTime||'');
+    });
+  }, [preview]);
+
+  return (
+    <div>
+      <div className="page-header">
+        <div><div className="page-title">Import / Export</div><div className="page-sub">Import trades from MT5 Excel report or CSV</div></div>
+        <button className="btn btn-secondary" onClick={exportAll}>⬇ Export All Trades</button>
+      </div>
+
+      <div className="page-body" style={{ maxWidth: 760 }}>
+
+        {/* ── Account selector — always visible at top ──────────────────── */}
+        {accounts.length > 0 && (
+          <div className="card" style={{ marginBottom:14, padding:'14px 18px', background:'rgba(59,130,246,.06)', border:`2px solid ${importAccountId ? 'rgba(59,130,246,.4)' : 'rgba(239,68,68,.3)'}` }}>
+            <div style={{ display:'flex', alignItems:'center', gap:12, flexWrap:'wrap' }}>
+              <span style={{ fontSize:13, fontWeight:700, color:'var(--text-primary)', flexShrink:0 }}>🏦 Import trades into:</span>
+              <select className="form-control" style={{ flex:1, maxWidth:300 }}
+                value={importAccountId} onChange={e=>setImportAccountId(e.target.value)}>
+                <option value="">— Select account first —</option>
+                {accounts.map(a => (
+                  <option key={a.id} value={a.id}>{a.name}{a.accountNumber ? ` #${a.accountNumber}` : ''}</option>
+                ))}
+              </select>
+              {importAccountId
+                ? <span style={{ fontSize:12, color:'var(--blue-bright)', fontWeight:600 }}>
+                    ✓ Trades will be tagged to {accounts.find(a=>a.id===importAccountId)?.name}
+                  </span>
+                : <span style={{ fontSize:12, color:'var(--red)', fontWeight:600 }}>
+                    ⚠ Select an account — otherwise trades won't appear under any account filter
+                  </span>
+              }
+            </div>
+          </div>
+        )}
+
+        <div className="tabs">
+          <button className={`tab-btn${tab==='mt5'?' active':''}`} onClick={()=>{setTab('mt5');reset();}}>📊 MT5 Excel Report</button>
+          <button className={`tab-btn${tab==='csv'?' active':''}`} onClick={()=>{setTab('csv');reset();}}>📄 CSV Import</button>
+          <button className={`tab-btn${tab==='screenshot'?' active':''}`} onClick={()=>{setTab('screenshot');reset();}}>📸 Screenshot Import</button>
+        </div>
+
+        {/* ── MT5 Excel Tab ─────────────────────────────────────────────── */}
+        {tab === 'mt5' && (
+          <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+            {/* How to export from MT5 */}
+            <div className="card" style={{ background:'rgba(59,130,246,.05)', border:'1px solid rgba(59,130,246,.2)' }}>
+              <div className="card-title">📋 How to export from MT5</div>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16 }}>
+                <div>
+                  {[
+                    'Open MetaTrader 5',
+                    'Click View → Terminal (or press Ctrl+T)',
+                    'Click the History tab at the bottom',
+                    'Right-click anywhere in the history list',
+                    'Click "Save as Report"',
+                    'Choose Excel (.xlsx) format',
+                    'Save the file and upload it below',
+                  ].map((s,i)=>(
+                    <div key={i} style={{ display:'flex', gap:8, marginBottom:6, fontSize:12 }}>
+                      <span style={{ width:18,height:18,background:'var(--blue)',borderRadius:'50%',display:'inline-flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:700,color:'#fff',flexShrink:0 }}>{i+1}</span>
+                      <span style={{ color:'var(--text-secondary)' }}>{s}</span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ background:'var(--bg-hover)', borderRadius:8, padding:'14px', fontSize:12 }}>
+                  <div style={{ fontWeight:700, marginBottom:8, fontSize:13 }}>Expected file format:</div>
+                  <div style={{ color:'var(--text-muted)', fontFamily:'monospace', fontSize:11, lineHeight:1.8 }}>
+                    Trade History Report<br/>
+                    Name: &nbsp;&nbsp;&nbsp;[Your Name]<br/>
+                    Account: [Account No]<br/>
+                    ...<br/>
+                    <span style={{ color:'var(--blue-bright)' }}>Time | Position | Symbol | Type | Volume | Price | ... | Profit</span><br/>
+                    2026.02.02 13:27 | 4691854 | XAUUSD | sell | ...
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Upload box */}
+            <div className="card">
+              <div className="card-title">Upload MT5 Excel File (.xlsx)</div>
+              <label style={{
+                display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
+                border:'2px dashed var(--border-light)', borderRadius:10, padding:'36px 20px',
+                cursor:'pointer', background:'var(--bg-hover)', transition:'all .15s',
+              }}
+                onDragOver={e=>{e.preventDefault();e.currentTarget.style.borderColor='var(--blue)';}}
+                onDragLeave={e=>{e.currentTarget.style.borderColor='var(--border-light)';}}
+                onDrop={e=>{e.preventDefault();e.currentTarget.style.borderColor='var(--border-light)';const f=e.dataTransfer.files[0];if(f)handleExcelFile(f);}}
+              >
+                <div style={{ fontSize:36, marginBottom:10 }}>📊</div>
+                <div style={{ fontWeight:700, marginBottom:4 }}>Drop your MT5 Excel file here</div>
+                <div style={{ color:'var(--text-muted)', fontSize:12, marginBottom:14 }}>or click to browse — .xlsx files only</div>
+                <span className="btn btn-primary">Choose File</span>
+                <input
+                  ref={fileInputRef}
+                  type="file" accept=".xlsx,.xls" style={{ display:'none' }}
+                  onChange={e=>{ const f=e.target.files[0]; if(f) handleExcelFile(f); }}
+                />
+              </label>
+
+              {loading && (
+                <div style={{ textAlign:'center', padding:'16px', color:'var(--text-secondary)', fontSize:13 }}>
+                  ⏳ Reading file and parsing trades...
+                </div>
+              )}
+
+              {error && (
+                <div style={{ marginTop:12, padding:'12px 14px', background:'var(--red-dim)', border:'1px solid rgba(239,68,68,.2)', borderRadius:8, fontSize:13, color:'var(--red)' }}>
+                  ❌ {error}
+                </div>
+              )}
+
+              {warnings.length > 0 && (
+                <div style={{ marginTop:10, padding:'10px 12px', background:'var(--yellow-dim)', borderRadius:7, fontSize:12, color:'var(--yellow)' }}>
+                  ⚠️ {warnings.length} rows had issues and were skipped: {warnings[0]}
+                </div>
+              )}
+
+              {success && (
+                <div style={{ marginTop:12, padding:'12px 14px', background:'var(--blue-dim)', border:'1px solid rgba(59,130,246,.2)', borderRadius:8, fontSize:13, color:'var(--blue-bright)' }}>
+                  {success}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── CSV Tab ───────────────────────────────────────────────────── */}
+        {tab === 'csv' && (
+          <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+            <div className="card">
+              <div className="card-title">Paste CSV Data</div>
+              <textarea className="form-control" rows={8}
+                placeholder={`symbol,side,status,entryDate,entryTime,exitDate,exitTime,entryPrice,exitPrice,size,fees,pnl,rMultiple,setup,timeframe,notes,tags,emotion\nXAUUSD,Short,Win,2026-04-17,13:36,2026-04-17,13:43,4786.99,4782.79,3,0,1229.70,2.1,Breakout,5m,,london,Confident`}
+                value={csvText} onChange={e=>setCsvText(e.target.value)}
+                style={{ fontFamily:'monospace', fontSize:12 }}
+              />
+              <div style={{ display:'flex', gap:10, marginTop:12, flexWrap:'wrap' }}>
+                <label className="btn btn-secondary" style={{ cursor:'pointer' }}>
+                  📁 Upload CSV File
+                  <input type="file" accept=".csv,.txt" style={{ display:'none' }}
+                    onChange={e=>{ const r=new FileReader(); r.onload=ev=>setCsvText(ev.target.result); r.readAsText(e.target.files[0]); }}
+                  />
+                </label>
+                <button className="btn btn-secondary" onClick={handleCSV} disabled={!csvText.trim()}>Preview</button>
+              </div>
+              {error && <div style={{ marginTop:10, padding:'9px 12px', background:'var(--red-dim)', borderRadius:7, color:'var(--red)', fontSize:13 }}>❌ {error}</div>}
+            </div>
+          </div>
+        )}
+
+        {/* ── Screenshot Import Tab ─────────────────────────────────────── */}
+        {tab === 'screenshot' && (
+          <ScreenshotImportTab
+            onPreview={setPreview}
+            onError={setError}
+            error={error}
+            reset={reset}
+          />
+        )}
+
+        {/* ── Preview ───────────────────────────────────────────────────── */}
+        {preview && preview.length > 0 && (
+          <div style={{ marginTop:14, background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:10, overflow:'hidden', marginLeft:-28, marginRight:-28, width:'calc(100vw - 220px - 1px)' }}>
+            {/* Account confirmation reminder */}
+            <div style={{ padding:'8px 18px', borderBottom:'1px solid var(--border)', background: importAccountId ? 'rgba(59,130,246,.06)' : 'rgba(239,68,68,.06)', display:'flex', alignItems:'center', gap:8 }}>
+              {importAccountId
+                ? <span style={{ fontSize:12, color:'var(--blue-bright)', fontWeight:600 }}>🏦 Importing into: {accounts.find(a=>a.id===importAccountId)?.name}</span>
+                : <span style={{ fontSize:12, color:'var(--red)', fontWeight:600 }}>⚠ No account selected — scroll up and select an account before importing</span>
+              }
+            </div>
+
+            {/* Preview header */}
+            <div style={{ padding:'14px 18px', borderBottom:'1px solid var(--border)', display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:10 }}>
+              <div style={{display:'flex',alignItems:'center',gap:12}}>
+                <span style={{ fontWeight:700, fontSize:14 }}>Preview — {preview.length} trades</span>
+                <span style={{ fontSize:12, color:'var(--text-muted)' }}>{wins}W / {preview.length - wins}L</span>
+                {preview.filter(t=>isDuplicate(t)).length > 0 && (
+                  <span style={{fontSize:11,background:'rgba(245,158,11,.15)',color:'#f59e0b',borderRadius:5,padding:'2px 8px',fontWeight:700}}>
+                    {preview.filter(t=>isDuplicate(t)).length} already exist (DUP) — will be skipped
+                  </span>
+                )}
+              </div>
+              <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                <span className={totalPnl>=0?'pos':'neg'} style={{ fontWeight:700, fontSize:13 }}>
+                  Net: {totalPnl>=0?'+':''}{totalPnl.toFixed(2)}
+                </span>
+                <button className="btn btn-primary" onClick={handleImport}>
+                  ✓ Import All {preview.length} Trades
+                </button>
+              </div>
+            </div>
+
+            <div style={{ overflowX:'auto', overflowY:'auto', maxHeight:'60vh' }}>
+              <table style={{width:'100%',borderCollapse:'collapse',fontSize:12,tableLayout:'fixed'}}>
+                <colgroup>
+                  <col style={{width:'12%'}}/><col style={{width:'7%'}}/><col style={{width:'8%'}}/>
+                  <col style={{width:'11%'}}/><col style={{width:'12%'}}/><col style={{width:'12%'}}/>
+                  <col style={{width:'6%'}}/><col style={{width:'10%'}}/><col style={{width:'10%'}}/>
+                </colgroup>
+                <thead style={{position:'sticky',top:0,background:'var(--bg-card)',zIndex:1}}>
+                  <tr style={{borderBottom:'2px solid var(--border)'}}>
+                    <th style={{padding:'8px 12px',textAlign:'left',fontSize:10,fontWeight:700,color:'var(--text-muted)'}}>SYMBOL</th>
+                    <th style={{padding:'8px 6px',textAlign:'left',fontSize:10,fontWeight:700,color:'var(--text-muted)'}}>SIDE</th>
+                    <th style={{padding:'8px 6px',textAlign:'left',fontSize:10,fontWeight:700,color:'var(--text-muted)'}}>STATUS</th>
+                    <th style={{padding:'8px 6px',textAlign:'left',fontSize:10,fontWeight:700,color:'var(--text-muted)'}}>DATE</th>
+                    <th style={{padding:'8px 6px',textAlign:'right',fontSize:10,fontWeight:700,color:'var(--text-muted)'}}>ENTRY</th>
+                    <th style={{padding:'8px 6px',textAlign:'right',fontSize:10,fontWeight:700,color:'var(--text-muted)'}}>EXIT</th>
+                    <th style={{padding:'8px 6px',textAlign:'right',fontSize:10,fontWeight:700,color:'var(--text-muted)'}}>SIZE</th>
+                    <th style={{padding:'8px 6px',textAlign:'right',fontSize:10,fontWeight:700,color:'var(--text-muted)'}}>
+                      COMM {commissionRate>0&&<span style={{color:'var(--blue-bright)',fontSize:9}}>auto</span>}
+                    </th>
+                    <th style={{padding:'8px 12px',textAlign:'right',fontSize:10,fontWeight:700,color:'var(--text-muted)'}}>P&L</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {previewSorted.map((t,i) => {
+                    const dup = isDuplicate(t);
+                    return (
+                    <tr key={i} style={{borderBottom:'1px solid var(--border)', opacity: dup?0.45:1, background: dup?'rgba(245,158,11,.04)':''}}
+                      onMouseEnter={e=>e.currentTarget.style.background=dup?'rgba(245,158,11,.08)':'var(--bg-hover)'}
+                      onMouseLeave={e=>e.currentTarget.style.background=dup?'rgba(245,158,11,.04)':''}>
+                      <td style={{padding:'8px 12px',fontWeight:700,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                        {t.symbol}
+                        {dup&&<span style={{marginLeft:5,fontSize:9,background:'rgba(245,158,11,.2)',color:'#f59e0b',borderRadius:4,padding:'1px 5px',fontWeight:700}}>DUP</span>}
+                      </td>
+                      <td style={{padding:'8px 6px'}}><span className={`badge badge-${(t.side||'long').toLowerCase()}`}>{t.side}</span></td>
+                      <td style={{padding:'8px 6px'}}><span className={`badge badge-${t.status==='Win'?'win':t.status==='Loss'?'loss':'be'}`}>{t.status}</span></td>
+                      <td style={{padding:'8px 6px',color:'var(--text-secondary)',fontSize:11,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.entryDate}</td>
+                      <td style={{padding:'8px 6px',textAlign:'right',fontFamily:'monospace',fontSize:11}}>{t.entryPrice}</td>
+                      <td style={{padding:'8px 6px',textAlign:'right',fontFamily:'monospace',fontSize:11}}>{t.exitPrice||'—'}</td>
+                      <td style={{padding:'8px 6px',textAlign:'right',color:'var(--text-secondary)',fontSize:11}}>{t.size}</td>
+                      <td style={{padding:'8px 6px',textAlign:'right',fontSize:11,color:'var(--red)',whiteSpace:'nowrap'}}>
+                        {(() => { const c=calcComm(t); return c>0?`-$${c.toFixed(2)}`:'—'; })()}
+                      </td>
+                      <td style={{padding:'8px 12px',textAlign:'right',fontWeight:800,fontSize:13,color:(t.pnl||0)>=0?'var(--blue-bright)':'var(--red)',whiteSpace:'nowrap'}}>
+                        {(t.pnl||0)>=0?'+':''}{(t.pnl||0).toFixed(2)}
+                      </td>
+                    </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Import stats + Undo — persists across tab navigation */}
+        {(importStats || hasUndo) && (
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'12px 16px', background: importStats ? 'rgba(74,222,128,.08)' : 'var(--bg-hover)', border:`1px solid ${importStats?'rgba(74,222,128,.2)':'var(--border)'}`, borderRadius:8, marginTop:12 }}>
+            <div style={{ fontSize:13, fontWeight:600 }}>
+              {importStats ? (
+                <>
+                  <span style={{ color:'#4ade80' }}>✓ {importStats.added} new trade{importStats.added!==1?'s':''} added</span>
+                  {importStats.duplicates > 0 && (
+                    <span style={{ color:'var(--text-muted)', marginLeft:12 }}>· {importStats.duplicates} duplicate{importStats.duplicates!==1?'s':''} merged</span>
+                  )}
+                </>
+              ) : (
+                <span style={{ color:'var(--text-muted)' }}>↩ Previous import can be undone</span>
+              )}
+            </div>
+            <button className="btn btn-secondary btn-sm" onClick={() => {
+              if (!window.confirm('Undo the last import? This will revert all trades added in that import.')) return;
+              const ok = undoLastImport();
+              if (ok) {
+                setImportStats(null);
+                try { setHasUndo(JSON.parse(localStorage.getItem('tf_undo_stack')||'[]').length > 0); } catch {}
+                showToast({ title: '↩ Import undone', message: 'Trades reverted to before the import' });
+              } else {
+                showToast({ title: 'Nothing to undo', message: 'No import history found' });
+              }
+            }}>↩ Undo Import</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PLAYBOOKS PAGE
+// ─────────────────────────────────────────────────────────────────────────────
+export function PlaybooksPage() {
+  const { playbooks, addPlaybook, updatePlaybook, deletePlaybook, trades } = useTrades();
+  const [showModal, setShowModal] = useState(false);
+  const [editPb,    setEditPb]    = useState(null);
+  const [form,      setForm]      = useState({ name:'', description:'', rules:[''] });
+
+  const getStats = name => {
+    const t=trades.filter(x=>x.playbook===name);
+    const w=t.filter(x=>x.status==='Win').length;
+    return { total:t.length, wr:t.length?(w/t.length*100).toFixed(0):'0', pnl:t.reduce((s,x)=>s+(x.pnl||0),0) };
+  };
+
+  const open = (pb=null) => {
+    setEditPb(pb);
+    setForm(pb ? { name:pb.name, description:pb.description||'', rules:[...(pb.rules||[''])] } : { name:'', description:'', rules:[''] });
+    setShowModal(true);
+  };
+
+  const submit = e => {
+    e.preventDefault();
+    const p = { ...form, rules: form.rules.filter(r=>r.trim()) };
+    if (editPb) updatePlaybook(editPb.id, p); else addPlaybook(p);
+    setShowModal(false);
+  };
+
+  return (
+    <div>
+      <div className="page-header">
+        <div><div className="page-title">Playbooks</div><div className="page-sub">Define and track your trading strategies</div></div>
+        <button className="btn btn-primary" onClick={()=>open()}>+ New Playbook</button>
+      </div>
+      <div className="page-body">
+        {!playbooks.length && <div className="empty-state"><div className="empty-icon">📚</div><div className="empty-text">No playbooks yet. Create your first strategy!</div></div>}
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))', gap:14 }}>
+          {playbooks.map(pb => {
+            const s = getStats(pb.name);
+            return (
+              <div key={pb.id} className="card">
+                <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}>
+                  <span style={{ fontWeight:700, fontSize:14 }}>{pb.name}</span>
+                  <div style={{ display:'flex', gap:5 }}>
+                    <button className="btn-icon" style={{ fontSize:11 }} onClick={()=>open(pb)}>✏️</button>
+                    <button className="btn-icon" style={{ fontSize:11 }} onClick={()=>deletePlaybook(pb.id)}>🗑</button>
+                  </div>
+                </div>
+                {pb.description && <p style={{ fontSize:12, color:'var(--text-secondary)', marginBottom:12, lineHeight:1.6 }}>{pb.description}</p>}
+                {pb.rules?.length>0 && (
+                  <div style={{ marginBottom:12 }}>
+                    {pb.rules.map((r,i)=>(
+                      <div key={i} style={{ display:'flex', gap:7, marginBottom:5, fontSize:12 }}>
+                        <span style={{ color:'var(--blue)', fontSize:11 }}>✓</span>
+                        <span style={{ color:'var(--text-secondary)' }}>{r}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div style={{ height:1, background:'var(--border)', margin:'10px 0' }}/>
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8 }}>
+                  {[['TRADES',s.total,'neu'],['WIN%',`${s.wr}%`,parseInt(s.wr)>=50?'pos':'neg'],['P&L',`${s.pnl>=0?'+':''}$${s.pnl.toFixed(0)}`,s.pnl>=0?'pos':'neg']].map(([l,v,c])=>(
+                    <div key={l} style={{ textAlign:'center' }}>
+                      <div style={{ fontSize:9, color:'var(--text-muted)', fontWeight:600, marginBottom:2 }}>{l}</div>
+                      <div className={c} style={{ fontWeight:700, fontSize:13 }}>{v}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {showModal && (
+        <div className="modal-backdrop" onClick={e=>e.target===e.currentTarget&&setShowModal(false)}>
+          <div className="modal" style={{ maxWidth:480 }}>
+            <div className="modal-header"><span className="modal-title">{editPb?'Edit':'New'} Playbook</span><button className="btn-ghost" onClick={()=>setShowModal(false)}>✕</button></div>
+            <form onSubmit={submit}>
+              <div className="modal-body">
+                <div className="form-group"><label className="form-label">Name *</label><input className="form-control" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} required/></div>
+                <div className="form-group"><label className="form-label">Description</label><textarea className="form-control" rows={2} value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))}/></div>
+                <div className="form-group">
+                  <label className="form-label">Rules</label>
+                  {form.rules.map((r,i)=>(
+                    <div key={i} style={{ display:'flex', gap:6, marginBottom:6 }}>
+                      <input className="form-control" value={r} onChange={e=>{const rs=[...form.rules];rs[i]=e.target.value;setForm(f=>({...f,rules:rs}));}}/>
+                      {form.rules.length>1 && <button type="button" className="btn-ghost" onClick={()=>setForm(f=>({...f,rules:f.rules.filter((_,j)=>j!==i)}))}>✕</button>}
+                    </div>
+                  ))}
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={()=>setForm(f=>({...f,rules:[...f.rules,'']}))}>+ Rule</button>
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="btn btn-secondary" onClick={()=>setShowModal(false)}>Cancel</button>
+                <button type="submit" className="btn btn-primary">{editPb?'Save':'Create'}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SETTINGS PAGE
+// ─────────────────────────────────────────────────────────────────────────────
+export function SettingsPage() {
+  const { settings, setSettings, trades, stats, accounts, addAccount, updateAccount, deleteAccount, deleteTrade, refreshSupabaseClient } = useTrades();
+  const { showToast } = useToast();
+  const [form, setForm] = useState({
+    customSetups: [], customMistakes: [], customChecklist: [],
+    removedSetups: [], removedMistakes: [], removedChecklist: [],
+    traderName: 'Trader',
+    ...settings,
+  });
+  const [newAcc, setNewAcc]     = useState({ name:'', accountNumber:'', source:'', color:'#3b82f6', brokeragePerLot:'' });
+  const [editingAccId, setEditingAccId] = useState(null);
+  const [dedupResult, setDedupResult] = useState(null);
+  const COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#14b8a6','#f97316'];
+  const [saved, setSaved] = useState(false);
+  const [newSymbol, setNewSymbol] = useState('');
+  const [newSymRate, setNewSymRate] = useState('');
+
+  // Supabase state
+  const cfg = getSupabaseConfig();
+  const [sbUrl,  setSbUrl]    = useState(cfg.url);
+  const [sbKey,  setSbKey]    = useState(cfg.key);
+  const [sbTesting, setSbTesting] = useState(false);
+  const [sbStatus,  setSbStatus]  = useState(isSupabaseConfigured() ? 'connected' : '');
+  const [showSbKey, setShowSbKey] = useState(false);
+  const [showSql,   setShowSql]   = useState(false);
+  const s  = (k,v) => { setForm(f=>({...f,[k]:v})); setSaved(false); };
+  const save = e => { e.preventDefault(); setSettings(form); setSaved(true); setTimeout(()=>setSaved(false),2000); showToast({ title: 'Settings saved', message: 'All preferences updated' }); };
+
+  // Per-account field updater (updates the accounts array directly)
+  const setAccField = (id, k, v) => updateAccount(id, { [k]: v });
+
+  // Journal customization: built-in options
+  const BUILTIN_SETUPS    = ['5 Min A+','5 Min TJL1','5 Min TJL2','5 Min LVL 3','5 Min LVL 4','15 Min A+','15 Min TJL1','15 Min TJL2','15 Min LVL 3','15 Min LVL 4','1H A+','1H TJL1','1H TJL2','1H LVL 3','1H LVL 4','4H A+','4H TJL1','4H TJL2','1D A+','1D TJL1','1D TJL2'];
+  const BUILTIN_MISTAKES  = ['Early Entry','Late Entry','Early Exit','Late Exit','Oversized','Ignored Stop','Ignored trend','Chasing','Revenge Trade','No plan'];
+  const BUILTIN_CHECKLIST = ['Confirmed entry','Checked higher timeframe','Risk within limits','Fits my trading plan','Key levels identified','Economic calendar checked'];
+
+
+  // Reusable full-list editor — shows all items (built-in + custom) with delete
+  const FullListEditor = ({ builtins, customKey, removedKey, placeholder }) => {
+    const removed  = form[removedKey]  || [];
+    const custom   = form[customKey]   || [];
+    const allItems = [
+      ...builtins.filter(x => !removed.includes(x)).map(x => ({ label:x, isBuiltin:true })),
+      ...custom.map(x => ({ label:x, isBuiltin:false })),
+    ];
+    // Auto-save list changes to settings immediately (no need to click Save Settings)
+    const applyAndSave = (key, val) => {
+      const updated = { ...form, [key]: val };
+      setForm(updated);
+      setSettings(updated);
+      setSaved(false);
+    };
+    const removeItem = (item) => {
+      if (item.isBuiltin) applyAndSave(removedKey, [...removed, item.label]);
+      else applyAndSave(customKey, custom.filter(x => x !== item.label));
+    };
+    const restoreAll = () => applyAndSave(removedKey, []);
+    const addItem = (val) => {
+      if (!val || custom.includes(val) || builtins.includes(val)) return false;
+      applyAndSave(customKey, [...custom, val]);
+      return true;
+    };
+    return (
+      <div>
+        <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginBottom:10 }}>
+          {allItems.map((item, i) => (
+            <div key={i} style={{ display:'flex', alignItems:'center', gap:4,
+              background: item.isBuiltin ? 'var(--bg-hover)' : 'rgba(59,130,246,.1)',
+              border: `1px solid ${item.isBuiltin ? 'var(--border)' : 'rgba(59,130,246,.25)'}`,
+              borderRadius:6, padding:'4px 8px 4px 10px', fontSize:12 }}>
+              {!item.isBuiltin && <span style={{ fontSize:9, color:'var(--blue)', fontWeight:700, marginRight:2 }}>+</span>}
+              <span>{item.label}</span>
+              <button type="button" onClick={() => removeItem(item)}
+                style={{ background:'none', border:'none', color:'var(--text-muted)', cursor:'pointer', fontSize:13, padding:0, lineHeight:1, marginLeft:3 }}>✕</button>
+            </div>
+          ))}
+          {allItems.length === 0 && (
+            <span style={{ fontSize:12, color:'var(--text-muted)', fontStyle:'italic' }}>All items removed</span>
+          )}
+        </div>
+        {removed.length > 0 && (
+          <button type="button" onClick={restoreAll} style={{ fontSize:11, color:'var(--blue)', background:'none', border:'none', cursor:'pointer', marginBottom:8, padding:0 }}>
+            ↩ Restore {removed.length} removed item{removed.length>1?'s':''}
+          </button>
+        )}
+        <div style={{ display:'flex', gap:8 }}>
+          <input className="form-control" placeholder={placeholder} style={{ flex:1 }}
+            onKeyDown={e => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                if (addItem(e.target.value.trim())) e.target.value = '';
+              }
+            }}/>
+          <button type="button" className="btn btn-secondary btn-sm"
+            onClick={e => {
+              const inp = e.currentTarget.previousSibling;
+              if (addItem(inp.value.trim())) inp.value = '';
+            }}>Add</button>
+        </div>
+        <div style={{ fontSize:10, color:'var(--text-muted)', marginTop:5 }}>
+          White = built-in · <span style={{ color:'var(--blue)' }}>Blue +</span> = custom added by you · ✕ removes any item
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div>
+      <div className="page-header"><div><div className="page-title">Settings</div><div className="page-sub">Configure your trading journal</div></div></div>
+      <div className="page-body" style={{ maxWidth:600 }}>
+        <form onSubmit={save}>
+
+          {/* ── General ───────────────────────────────────────────────────── */}
+          <div className="card" style={{ marginBottom:16 }}>
+            <div className="card-title">General</div>
+            <div className="form-group"><label className="form-label">Trader Name</label><input className="form-control" placeholder="Your name" value={form.traderName||''} onChange={e=>s('traderName',e.target.value)}/></div>
+            <div className="form-row cols-2">
+              <div className="form-group"><label className="form-label">Currency</label><select className="form-control" value={form.currency} onChange={e=>s('currency',e.target.value)}><option>USD</option><option>EUR</option><option>GBP</option><option>INR</option><option>AUD</option><option>CAD</option></select></div>
+              <div className="form-group"><label className="form-label">Default Risk % per trade</label><input className="form-control" type="number" step="0.1" value={form.riskPerTrade} onChange={e=>s('riskPerTrade',parseFloat(e.target.value))}/></div>
+            </div>
+            <div className="form-group" style={{ marginBottom:0 }}><label className="form-label">Timezone</label><select className="form-control" value={form.timezone} onChange={e=>s('timezone',e.target.value)}><option>UTC</option><option>US/Eastern</option><option>US/Pacific</option><option>Europe/London</option><option>Asia/Kolkata</option><option>Asia/Tokyo</option></select></div>
+          </div>
+
+          {/* ── Cloud Sync (Supabase) ─────────────────────────────────────── */}
+          <div className="card" style={{ marginBottom:16, border: sbStatus === 'connected' ? '1px solid rgba(74,222,128,.3)' : '1px solid var(--border)' }}>
+            <div className="card-title" style={{ display:'flex', alignItems:'center', gap:8 }}>
+              ☁ Cloud Sync
+              {sbStatus === 'connected' && <span style={{ fontSize:11, fontWeight:600, color:'#4ade80', background:'rgba(74,222,128,.1)', borderRadius:4, padding:'1px 8px' }}>Connected</span>}
+              {sbStatus === 'error'     && <span style={{ fontSize:11, fontWeight:600, color:'var(--red)',   background:'var(--red-dim)',           borderRadius:4, padding:'1px 8px' }}>Error</span>}
+            </div>
+            <p style={{ fontSize:13, color:'var(--text-secondary)', marginBottom:14, lineHeight:1.7 }}>
+              Connect your own free <strong>Supabase</strong> project to sync data across all your devices (phone, tablet, computer). Each person uses their own Supabase — your data stays completely private.
+            </p>
+
+            {sbStatus !== 'connected' && (
+              <div style={{ background:'rgba(59,130,246,.07)', border:'1px solid rgba(59,130,246,.2)', borderRadius:8, padding:'12px 14px', marginBottom:14 }}>
+                <div style={{ fontSize:12, fontWeight:700, color:'var(--blue-bright)', marginBottom:8 }}>🚀 Setup — takes 5 minutes, completely free</div>
+                <ol style={{ fontSize:12, color:'var(--text-secondary)', margin:0, paddingLeft:18, lineHeight:2 }}>
+                  <li>Go to <strong>supabase.com</strong> → Create a free account → New Project</li>
+                  <li>In your project: go to <strong>SQL Editor → New query</strong> and run:</li>
+                </ol>
+                <div style={{ position:'relative', marginTop:8, marginBottom:8 }}>
+                  <pre style={{ background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:6, padding:'10px 12px', fontSize:11, fontFamily:'monospace', color:'var(--text-secondary)', margin:0, overflowX:'auto' }}>{SETUP_SQL}</pre>
+                  <button type="button" onClick={() => { navigator.clipboard.writeText(SETUP_SQL); showToast({ title: 'Copied!', message: 'Paste into Supabase SQL Editor' }); }}
+                    style={{ position:'absolute', top:6, right:6, fontSize:10, padding:'2px 8px', borderRadius:4, background:'var(--bg-hover)', border:'1px solid var(--border)', cursor:'pointer', color:'var(--text-secondary)' }}>Copy</button>
+                </div>
+                <ol start={3} style={{ fontSize:12, color:'var(--text-secondary)', margin:0, paddingLeft:18, lineHeight:2 }}>
+                  <li>Go to <strong>Project Settings → API</strong> and copy your <strong>Project URL</strong> and <strong>anon/public</strong> key</li>
+                  <li>Paste them below and click Connect</li>
+                </ol>
+              </div>
+            )}
+
+            <div className="form-group">
+              <label className="form-label">Supabase Project URL</label>
+              <input className="form-control" placeholder="https://xxxxxxxxxxxx.supabase.co" value={sbUrl} onChange={e=>setSbUrl(e.target.value)}/>
+            </div>
+            <div className="form-group" style={{ marginBottom:12 }}>
+              <label className="form-label">Supabase Anon Key</label>
+              <div style={{ position:'relative' }}>
+                <input className="form-control" type={showSbKey?'text':'password'} placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." value={sbKey} onChange={e=>setSbKey(e.target.value)} style={{ paddingRight:60 }}/>
+                <button type="button" onClick={()=>setShowSbKey(p=>!p)} style={{ position:'absolute', right:8, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', color:'var(--text-muted)', cursor:'pointer', fontSize:12 }}>{showSbKey?'Hide':'Show'}</button>
+              </div>
+            </div>
+            <div style={{ display:'flex', gap:8 }}>
+              <button type="button" className="btn btn-primary btn-sm" disabled={sbTesting || !sbUrl || !sbKey}
+                onClick={async () => {
+                  setSbTesting(true); setSbStatus('');
+                  const result = await testSupabaseConnection(sbUrl, sbKey);
+                  setSbTesting(false);
+                  if (result.ok) {
+                    saveSupabaseConfig(sbUrl, sbKey);
+                    setSbStatus('connected');
+                    refreshSupabaseClient();
+                    showToast({ title: '☁ Cloud sync enabled', message: 'Your data will now sync across devices' });
+                  } else {
+                    setSbStatus('error');
+                    showToast({ title: 'Connection failed', message: result.message || 'Check your URL and key', type: 'error' });
+                  }
+                }}>
+                {sbTesting ? '⏳ Testing...' : sbStatus === 'connected' ? '↻ Reconnect' : 'Connect'}
+              </button>
+              {sbStatus === 'connected' && (
+                <button type="button" className="btn btn-secondary btn-sm"
+                  onClick={() => {
+                    if (!window.confirm('Disconnect cloud sync? Your data stays in the browser but won\'t sync to other devices.')) return;
+                    clearSupabaseConfig(); setSbUrl(''); setSbKey(''); setSbStatus('');
+                    refreshSupabaseClient();
+                    showToast({ title: 'Cloud sync disconnected' });
+                  }}>Disconnect</button>
+              )}
+            </div>
+            {sbStatus === 'connected' && (
+              <div style={{ marginTop:10, fontSize:12, color:'var(--text-muted)', lineHeight:1.6 }}>
+                ✓ Data syncs automatically on every change. To use on another device, open the app URL and enter the same Supabase URL and key in Settings.
+              </div>
+            )}
+          </div>
+
+          {/* ── Account Sizes + Date Ranges ───────────────────────────────── */}
+          <div className="card" style={{ marginBottom:16 }}>
+            <div className="card-title">📊 Account Size &amp; Date Range</div>
+            <p style={{ fontSize:13, color:'var(--text-secondary)', marginBottom:14, lineHeight:1.7 }}>
+              Set a starting balance and stats date range for each account separately, or use the global defaults.
+            </p>
+
+            {/* Global defaults */}
+            <div style={{ background:'var(--bg-hover)', borderRadius:8, padding:'14px 16px', marginBottom:12, border:'1px solid var(--border)' }}>
+              <div style={{ fontWeight:700, fontSize:13, marginBottom:12, display:'flex', alignItems:'center', gap:6 }}>
+                <span style={{ fontSize:11 }}>⬡</span> Global Defaults
+                <span style={{ fontSize:11, color:'var(--text-muted)', fontWeight:400 }}>(used when "All Accounts" is selected)</span>
+              </div>
+              <div className="form-row cols-2" style={{ marginBottom:10 }}>
+                <div className="form-group" style={{ marginBottom:0 }}>
+                  <label className="form-label">Starting Account Size ($)</label>
+                  <input className="form-control" type="number" value={form.accountSize} onChange={e=>s('accountSize',parseFloat(e.target.value))}/>
+                </div>
+                <div className="form-group" style={{ marginBottom:0 }}>
+                  <label className="form-label">Brokerage per Lot ($)</label>
+                  <input className="form-control" type="number" step="0.01" min="0" placeholder="e.g. 7.00" value={form.brokeragePerLot||''} onChange={e=>s('brokeragePerLot',parseFloat(e.target.value)||0)}/>
+                </div>
+              </div>
+
+              {/* Symbol-specific commission overrides */}
+              <div style={{marginBottom:16}}>
+                <label className="form-label" style={{marginBottom:6}}>
+                  Symbol Commission Overrides
+                  <span style={{fontWeight:400,color:'var(--text-muted)',fontSize:11,marginLeft:6}}>
+                    ($/lot — overrides global rate for that symbol when no stored fee exists)
+                  </span>
+                </label>
+                <div style={{display:'flex',flexDirection:'column',gap:6}}>
+                  {Object.entries(form.symbolCommissions||{}).map(([sym,rate])=>(
+                    <div key={sym} style={{display:'flex',alignItems:'center',gap:8}}>
+                      <div className="form-control" style={{width:120,background:'var(--bg-card2)',color:'var(--text-primary)',fontWeight:600}}>{sym}</div>
+                      <span style={{color:'var(--text-muted)',fontSize:13}}>→</span>
+                      <input className="form-control" type="number" step="0.01" min="0" style={{width:100}}
+                        value={rate}
+                        onChange={e=>{
+                          const updated={...(form.symbolCommissions||{}),[sym]:parseFloat(e.target.value)||0};
+                          s('symbolCommissions',updated);
+                        }}/>
+                      <span style={{color:'var(--text-muted)',fontSize:12}}>$/lot</span>
+                      <button className="btn btn-ghost btn-sm" style={{color:'var(--red)',padding:'2px 8px'}}
+                        onClick={()=>{
+                          const updated={...(form.symbolCommissions||{})};
+                          delete updated[sym];
+                          s('symbolCommissions',updated);
+                        }}>✕ Remove</button>
+                    </div>
+                  ))}
+                  <div style={{display:'flex',alignItems:'center',gap:8,marginTop:4}}>
+                    <input className="form-control" style={{width:120}} placeholder="e.g. BTCUSD"
+                      value={newSymbol}
+                      onChange={e=>setNewSymbol(e.target.value.toUpperCase())}
+                      onKeyDown={e=>{ if(e.key==='Enter' && newSymbol && newSymRate){ s('symbolCommissions',{...(form.symbolCommissions||{}),[newSymbol]:parseFloat(newSymRate)||0}); setNewSymbol(''); setNewSymRate(''); }}}/>
+                    <span style={{color:'var(--text-muted)',fontSize:13}}>→</span>
+                    <input className="form-control" type="number" step="0.01" min="0" style={{width:100}}
+                      placeholder="e.g. 12"
+                      value={newSymRate}
+                      onChange={e=>setNewSymRate(e.target.value)}
+                      onKeyDown={e=>{ if(e.key==='Enter' && newSymbol && newSymRate){ s('symbolCommissions',{...(form.symbolCommissions||{}),[newSymbol]:parseFloat(newSymRate)||0}); setNewSymbol(''); setNewSymRate(''); }}}/>
+                    <span style={{color:'var(--text-muted)',fontSize:12}}>$/lot</span>
+                    <button className="btn btn-secondary btn-sm"
+                      disabled={!newSymbol||!newSymRate}
+                      onClick={()=>{
+                        if(!newSymbol||!newSymRate) return;
+                        s('symbolCommissions',{...(form.symbolCommissions||{}),[newSymbol.toUpperCase()]:parseFloat(newSymRate)||0});
+                        setNewSymbol(''); setNewSymRate('');
+                      }}>+ Add</button>
+                  </div>
+                  <div style={{fontSize:11,color:'var(--text-muted)',marginTop:2}}>
+                    💡 Trades imported from Excel or with manually edited commission always use their stored fee regardless of this setting.
+                  </div>
+                </div>
+              </div>
+
+              <div className="form-row cols-2" style={{ marginBottom:0 }}>
+                <div className="form-group" style={{ marginBottom:0 }}>
+                  <label className="form-label">Stats Start Date</label>
+                  <input className="form-control" type="date" value={form.statsStartDate||''} onChange={e=>s('statsStartDate',e.target.value)}/>
+                </div>
+                <div className="form-group" style={{ marginBottom:0 }}>
+                  <label className="form-label">Stats End Date</label>
+                  <input className="form-control" type="date" value={form.statsEndDate||''} onChange={e=>s('statsEndDate',e.target.value)}/>
+                </div>
+              </div>
+              {(form.statsStartDate||form.statsEndDate) && (
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', background:'rgba(59,130,246,.08)', border:'1px solid rgba(59,130,246,.2)', borderRadius:6, padding:'6px 10px', marginTop:10 }}>
+                  <span style={{ fontSize:11, color:'var(--text-secondary)' }}>
+                    📊 {form.statsStartDate||'all time'} → {form.statsEndDate||'today'}
+                  </span>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={()=>{s('statsStartDate','');s('statsEndDate','');}}>✕ Clear</button>
+                </div>
+              )}
+            </div>
+
+            {/* Per-account overrides */}
+            {accounts.map(acc => (
+              <div key={acc.id} style={{ background:'var(--bg-hover)', borderRadius:8, padding:'14px 16px', marginBottom:10, border:`1px solid ${acc.color}30` }}>
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom: editingAccId===acc.id ? 14 : 0 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                    <span style={{ width:10, height:10, borderRadius:'50%', background:acc.color, display:'inline-block' }}/>
+                    <span style={{ fontWeight:700, fontSize:13 }}>{acc.name}</span>
+                    {acc.accountNumber && <span style={{ fontSize:11, color:'var(--text-muted)' }}>#{acc.accountNumber}</span>}
+                    {(acc.accountSize || acc.statsStartDate || acc.statsEndDate || acc.brokeragePerLot != null) && (
+                      <span style={{ fontSize:10, background:`${acc.color}20`, color:acc.color, borderRadius:4, padding:'1px 6px', fontWeight:600 }}>Custom</span>
+                    )}
+                  </div>
+                  <button type="button" className="btn btn-ghost btn-sm"
+                    onClick={() => setEditingAccId(editingAccId===acc.id ? null : acc.id)}>
+                    {editingAccId===acc.id ? '▲ Close' : '✎ Edit'}
+                  </button>
+                </div>
+                {editingAccId === acc.id && (
+                  <div>
+                    <div className="form-row cols-2" style={{ marginBottom:10 }}>
+                      <div className="form-group" style={{ marginBottom:0 }}>
+                        <label className="form-label">Account Size ($) <span style={{ fontWeight:400, color:'var(--text-muted)' }}>(override global)</span></label>
+                        <input className="form-control" type="number" placeholder={`Global: $${form.accountSize||10000}`}
+                          value={acc.accountSize||''} onChange={e=>setAccField(acc.id,'accountSize',parseFloat(e.target.value)||null)}/>
+                      </div>
+                      <div className="form-group" style={{ marginBottom:0 }}>
+                        <label className="form-label">Brokerage per Lot ($) <span style={{ fontWeight:400, color:'var(--text-muted)' }}>(override global)</span></label>
+                        <input className="form-control" type="number" step="0.01" min="0"
+                          placeholder={`Global: $${form.brokeragePerLot||0}`}
+                          value={acc.brokeragePerLot != null ? acc.brokeragePerLot : ''}
+                          onChange={e => setAccField(acc.id, 'brokeragePerLot', e.target.value === '' ? null : parseFloat(e.target.value) || 0)}/>
+                      </div>
+                    </div>
+                    <div className="form-row cols-2" style={{ marginBottom:10 }}>
+                      <div className="form-group" style={{ marginBottom:0 }}>
+                        <label className="form-label">Stats Start Date <span style={{ fontWeight:400, color:'var(--text-muted)' }}>(this account)</span></label>
+                        <input className="form-control" type="date" value={acc.statsStartDate||''} onChange={e=>setAccField(acc.id,'statsStartDate',e.target.value)}/>
+                      </div>
+                      <div className="form-group" style={{ marginBottom:0 }}>
+                        <label className="form-label">Stats End Date</label>
+                        <input className="form-control" type="date" value={acc.statsEndDate||''} onChange={e=>setAccField(acc.id,'statsEndDate',e.target.value)}/>
+                      </div>
+                    </div>
+                    {(acc.statsStartDate||acc.statsEndDate) && (
+                      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', background:`${acc.color}15`, border:`1px solid ${acc.color}30`, borderRadius:6, padding:'6px 10px', marginBottom:10 }}>
+                        <span style={{ fontSize:11, color:'var(--text-secondary)' }}>
+                          📊 {acc.statsStartDate||'all time'} → {acc.statsEndDate||'today'}
+                        </span>
+                        <button type="button" className="btn btn-ghost btn-sm" onClick={()=>{setAccField(acc.id,'statsStartDate','');setAccField(acc.id,'statsEndDate','');}}>✕ Clear</button>
+                      </div>
+                    )}
+                    <div style={{ display:'flex', gap:8 }}>
+                      <button type="button" className="btn btn-danger btn-sm"
+                        onClick={() => { if (window.confirm(`Remove "${acc.name}"?`)) { deleteAccount(acc.id); setEditingAccId(null); } }}>
+                        🗑 Remove Account
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+
+            {/* Add new account inline */}
+            <div style={{ background:'var(--bg-card)', border:'1px dashed var(--border)', borderRadius:8, padding:'14px 16px' }}>
+              <div style={{ fontSize:12, fontWeight:700, color:'var(--text-secondary)', marginBottom:12 }}>＋ Add New Account</div>
+              <div className="form-row cols-2" style={{ marginBottom:10 }}>
+                <div className="form-group" style={{ marginBottom:0 }}>
+                  <label className="form-label">Account Name *</label>
+                  <input className="form-control" placeholder="e.g. FortressFX Live" value={newAcc.name} onChange={e=>setNewAcc(p=>({...p,name:e.target.value}))}/>
+                </div>
+                <div className="form-group" style={{ marginBottom:0 }}>
+                  <label className="form-label">Account Number</label>
+                  <input className="form-control" placeholder="e.g. 70118102" value={newAcc.accountNumber} onChange={e=>setNewAcc(p=>({...p,accountNumber:e.target.value}))}/>
+                </div>
+              </div>
+              <div className="form-group" style={{ marginBottom:10 }}>
+                <label className="form-label">Source Name <span style={{ fontWeight:400, color:'var(--text-muted)' }}>(matches trade source — e.g. FortressFX)</span></label>
+                <input className="form-control" placeholder="e.g. FortressFX" value={newAcc.source} onChange={e=>setNewAcc(p=>({...p,source:e.target.value}))}/>
+              </div>
+              <div className="form-group" style={{ marginBottom:10 }}>
+                <label className="form-label">Brokerage per Lot ($) <span style={{ fontWeight:400, color:'var(--text-muted)' }}>(leave blank to use global setting)</span></label>
+                <input className="form-control" type="number" step="0.01" min="0" placeholder={`e.g. ${form.brokeragePerLot||7}`}
+                  value={newAcc.brokeragePerLot} onChange={e=>setNewAcc(p=>({...p,brokeragePerLot:e.target.value}))}/>
+              </div>
+              <div className="form-group" style={{ marginBottom:12 }}>
+                <label className="form-label">Colour</label>
+                <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginTop:4 }}>
+                  {COLORS.map(c => (
+                    <button key={c} type="button" onClick={() => setNewAcc(p=>({...p,color:c}))}
+                      style={{ width:24, height:24, borderRadius:'50%', background:c, border:`3px solid ${newAcc.color===c?'white':'transparent'}`, cursor:'pointer', outline:newAcc.color===c?`2px solid ${c}`:'none', outlineOffset:1 }}/>
+                  ))}
+                </div>
+              </div>
+              <button type="button" className="btn btn-secondary btn-sm"
+                onClick={() => {
+                  if (!newAcc.name.trim() || !newAcc.source.trim()) return;
+                  addAccount({
+                    name: newAcc.name.trim(),
+                    accountNumber: newAcc.accountNumber.trim(),
+                    source: newAcc.source.trim(),
+                    color: newAcc.color,
+                    brokeragePerLot: newAcc.brokeragePerLot !== '' ? parseFloat(newAcc.brokeragePerLot) || 0 : null,
+                  });
+                  setNewAcc({ name:'', accountNumber:'', source:'', color:'#3b82f6', brokeragePerLot:'' });
+                  showToast({ title: 'Account added', message: newAcc.name });
+                }}>
+                Add Account
+              </button>
+            </div>
+          </div>
+
+          {/* ── Journal Customization ─────────────────────────────────────── */}
+          <div className="card" style={{ marginBottom:16 }}>
+            <div className="card-title">📝 Journal Customization</div>
+            <p style={{ fontSize:13, color:'var(--text-secondary)', marginBottom:18, lineHeight:1.7 }}>
+              See all options for Setups, Mistakes and Checklist. Click ✕ on any item to remove it. Add new ones at the bottom. Changes apply everywhere in the journal and trade forms.
+            </p>
+
+            {[
+              {
+                label: '📐 Setup Options',
+                builtins: BUILTIN_SETUPS,
+                customKey: 'customSetups',
+                removedKey: 'removedSetups',
+                placeholder: 'e.g. Engulfing, Pin Bar...',
+              },
+              {
+                label: '⚠ Mistake Options',
+                builtins: BUILTIN_MISTAKES,
+                customKey: 'customMistakes',
+                removedKey: 'removedMistakes',
+                placeholder: 'e.g. Moved SL, Traded news...',
+              },
+              {
+                label: '✅ Execution Checklist Items',
+                builtins: BUILTIN_CHECKLIST,
+                customKey: 'customChecklist',
+                removedKey: 'removedChecklist',
+                placeholder: 'e.g. Spread acceptable...',
+              },
+            ].map(cfg => (
+              <div key={cfg.customKey} style={{ marginBottom:22 }}>
+                <div style={{ fontSize:13, fontWeight:700, color:'var(--text-primary)', marginBottom:10 }}>{cfg.label}</div>
+                <FullListEditor {...cfg}/>
+              </div>
+            ))}
+          </div>
+
+          {/* ── Password Protection ───────────────────────────────────────── */}
+          {(() => {
+            const [pwMode,    setPwMode]    = React.useState('');  // '' | 'set' | 'change' | 'remove'
+            const [pw1,       setPw1]       = React.useState('');
+            const [pw2,       setPw2]       = React.useState('');
+            const [pwCurrent, setPwCurrent] = React.useState('');
+            const [pwMsg,     setPwMsg]     = React.useState('');
+            const [pwErr,     setPwErr]     = React.useState('');
+            const hasPassword = !!localStorage.getItem('tf_pw_hash');
+
+            const sha256 = async (str) => {
+              const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+              return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+            };
+
+            const handleSave = async () => {
+              setPwErr(''); setPwMsg('');
+              if (!pw1) { setPwErr('Enter a password.'); return; }
+              if (pw1.length < 6) { setPwErr('Password must be at least 6 characters.'); return; }
+              if (pw1 !== pw2) { setPwErr('Passwords do not match.'); return; }
+              if (pwMode === 'change') {
+                const curHash = await sha256(pwCurrent);
+                if (curHash !== localStorage.getItem('tf_pw_hash')) { setPwErr('Current password is wrong.'); return; }
+              }
+              const hash = await sha256(pw1);
+              localStorage.setItem('tf_pw_hash', hash);
+              // Also sync to Supabase so new devices get the password automatically
+              const { getSupabaseClient: getSb } = await import('../lib/supabase');
+              const sbClient = getSb();
+              if (sbClient) {
+                await sbClient.from('tf_data').upsert({ key: 'tf_pw_hash', value: hash, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+              }
+              setPwMsg(pwMode === 'set' ? '✓ Password set. Takes effect on next login.' : '✓ Password updated.');
+              setPw1(''); setPw2(''); setPwCurrent(''); setPwMode('');
+              showToast({ title: 'Password saved', message: 'Takes effect next time you open the app' });
+            };
+
+            const handleRemove = async () => {
+              setPwErr(''); setPwMsg('');
+              const curHash = await sha256(pwCurrent);
+              if (curHash !== localStorage.getItem('tf_pw_hash')) { setPwErr('Wrong password.'); return; }
+              localStorage.removeItem('tf_pw_hash');
+              setPwMsg('✓ Password removed. App is now open access.');
+              setPwCurrent(''); setPwMode('');
+              showToast({ title: 'Password removed' });
+            };
+
+            return (
+              <div className="card" style={{ marginBottom:16 }}>
+                <div className="card-title">🔐 Password Protection</div>
+                <p style={{ fontSize:13, color:'var(--text-secondary)', marginBottom:14, lineHeight:1.7 }}>
+                  {hasPassword
+                    ? 'Your app is password protected. A login screen appears when someone opens the app.'
+                    : 'Set a password so only you (and people you share the password with) can access this app.'}
+                </p>
+
+                <div style={{ display:'flex', gap:8, marginBottom: pwMode ? 14 : 0, flexWrap:'wrap' }}>
+                  {!hasPassword && (
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => { setPwMode('set'); setPwErr(''); setPwMsg(''); }}>
+                      🔒 Set Password
+                    </button>
+                  )}
+                  {hasPassword && (
+                    <>
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => { setPwMode('change'); setPwErr(''); setPwMsg(''); }}>
+                        ✏️ Change Password
+                      </button>
+                      <button type="button" className="btn btn-secondary btn-sm" style={{ color:'var(--red)' }} onClick={() => { setPwMode('remove'); setPwErr(''); setPwMsg(''); }}>
+                        🔓 Remove Password
+                      </button>
+                    </>
+                  )}
+                </div>
+
+                {pwMode === 'set' && (
+                  <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                    <input className="form-control" type="password" placeholder="New password (min 6 chars)" value={pw1} onChange={e=>setPw1(e.target.value)}/>
+                    <input className="form-control" type="password" placeholder="Confirm password" value={pw2} onChange={e=>setPw2(e.target.value)}/>
+                    {pwErr && <div style={{ fontSize:12, color:'var(--red)' }}>{pwErr}</div>}
+                    <div style={{ display:'flex', gap:8 }}>
+                      <button type="button" className="btn btn-primary btn-sm" onClick={handleSave}>Save Password</button>
+                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setPwMode(''); setPwErr(''); }}>Cancel</button>
+                    </div>
+                  </div>
+                )}
+
+                {pwMode === 'change' && (
+                  <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                    <input className="form-control" type="password" placeholder="Current password" value={pwCurrent} onChange={e=>setPwCurrent(e.target.value)}/>
+                    <input className="form-control" type="password" placeholder="New password (min 6 chars)" value={pw1} onChange={e=>setPw1(e.target.value)}/>
+                    <input className="form-control" type="password" placeholder="Confirm new password" value={pw2} onChange={e=>setPw2(e.target.value)}/>
+                    {pwErr && <div style={{ fontSize:12, color:'var(--red)' }}>{pwErr}</div>}
+                    <div style={{ display:'flex', gap:8 }}>
+                      <button type="button" className="btn btn-primary btn-sm" onClick={handleSave}>Update Password</button>
+                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setPwMode(''); setPwErr(''); }}>Cancel</button>
+                    </div>
+                  </div>
+                )}
+
+                {pwMode === 'remove' && (
+                  <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                    <input className="form-control" type="password" placeholder="Enter current password to confirm" value={pwCurrent} onChange={e=>setPwCurrent(e.target.value)}/>
+                    {pwErr && <div style={{ fontSize:12, color:'var(--red)' }}>{pwErr}</div>}
+                    <div style={{ display:'flex', gap:8 }}>
+                      <button type="button" className="btn btn-danger btn-sm" onClick={handleRemove}>Remove Password</button>
+                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setPwMode(''); setPwErr(''); }}>Cancel</button>
+                    </div>
+                  </div>
+                )}
+
+                {pwMsg && <div style={{ marginTop:8, fontSize:12, color:'#4ade80' }}>{pwMsg}</div>}
+              </div>
+            );
+          })()}
+
+          <div className="card" style={{ marginBottom:16 }}>
+            <div className="card-title">Data &amp; Storage</div>
+            <p style={{ fontSize:13, color:'var(--text-secondary)', marginBottom:14 }}>All data stored locally in your browser. Nothing is sent to any server.</p>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10, marginBottom:14 }}>
+              <div style={{ background:'var(--bg-hover)', borderRadius:8, padding:'12px 14px' }}>
+                <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:3 }}>TOTAL TRADES</div>
+                <div style={{ fontWeight:800, fontSize:20 }}>{trades.length}</div>
+              </div>
+              <div style={{ background:'var(--bg-hover)', borderRadius:8, padding:'12px 14px' }}>
+                <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:3 }}>STORAGE USED</div>
+                <div style={{ fontWeight:800, fontSize:20 }}>{(new Blob([JSON.stringify(localStorage)]).size/1024).toFixed(1)} KB</div>
+              </div>
+              <div style={{ background:'var(--bg-hover)', borderRadius:8, padding:'12px 14px' }}>
+                <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:3 }}>DUPLICATES</div>
+                <div style={{ fontWeight:800, fontSize:20 }}>
+                  {(() => {
+                    const seen = new Set();
+                    let count = 0;
+                    trades.forEach(t => {
+                      if (t.positionId) {
+                        if (seen.has(t.positionId)) count++;
+                        else seen.add(t.positionId);
+                      }
+                    });
+                    return <span style={{ color: count > 0 ? 'var(--red)' : '#4ade80' }}>{count}</span>;
+                  })()}
+                </div>
+              </div>
+            </div>
+
+            {/* Deduplication */}
+            <div style={{ marginBottom:12, padding:'12px 14px', background:'var(--bg-hover)', borderRadius:8 }}>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, flexWrap:'wrap' }}>
+                <div>
+                  <div style={{ fontSize:13, fontWeight:600, marginBottom:2 }}>🧹 Remove Duplicate Trades</div>
+                  <div style={{ fontSize:12, color:'var(--text-muted)' }}>
+                    Finds trades with the same Position ID and removes the extras. Journal notes and account tags on the first occurrence are kept.
+                  </div>
+                </div>
+                <button type="button" className="btn btn-secondary btn-sm" style={{ flexShrink:0 }}
+                  onClick={() => {
+                    const seen = new Map(); // positionId → first trade id
+                    const toDelete = [];
+                    trades.forEach(t => {
+                      if (!t.positionId) return;
+                      if (seen.has(t.positionId)) {
+                        toDelete.push(t.id);
+                      } else {
+                        seen.set(t.positionId, t.id);
+                      }
+                    });
+                    if (toDelete.length === 0) {
+                      setDedupResult({ removed: 0 });
+                      showToast({ title: 'No duplicates found', message: 'All trades have unique position IDs' });
+                      return;
+                    }
+                    if (window.confirm(`Found ${toDelete.length} duplicate trade${toDelete.length > 1 ? 's' : ''}. Remove them?`)) {
+                      toDelete.forEach(id => deleteTrade(id));
+                      setDedupResult({ removed: toDelete.length });
+                      showToast({ title: `Removed ${toDelete.length} duplicate${toDelete.length > 1 ? 's' : ''}`, message: 'Trade history is now clean' });
+                    }
+                  }}>
+                  🧹 Deduplicate
+                </button>
+              </div>
+              {dedupResult !== null && (
+                <div style={{ marginTop:8, fontSize:12, color: dedupResult.removed > 0 ? '#4ade80' : 'var(--text-muted)' }}>
+                  {dedupResult.removed > 0
+                    ? `✓ Removed ${dedupResult.removed} duplicate${dedupResult.removed > 1 ? 's' : ''}`
+                    : '✓ No duplicates found'}
+                </div>
+              )}
+            </div>
+
+            {/* Backup & Restore */}
+            <div style={{ marginBottom:12, padding:'12px 14px', background:'var(--bg-hover)', borderRadius:8 }}>
+              <div style={{ fontSize:13, fontWeight:600, marginBottom:6 }}>💾 Backup & Restore</div>
+              <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:10 }}>
+                Export all your data (trades, journal notes, settings, accounts) as a JSON file you can store safely.
+                Restore it anytime — on this device or another.
+              </div>
+              <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+                <button type="button" className="btn btn-secondary btn-sm"
+                  onClick={() => {
+                    const backup = {};
+                    ['tf_trades','tf_journal','tf_settings','tf_accounts','tf_playbooks','tf_broker'].forEach(k => {
+                      const v = localStorage.getItem(k);
+                      if (v) backup[k] = JSON.parse(v);
+                    });
+                    // Also include password hash so it transfers to new devices
+                    const pw = localStorage.getItem('tf_pw_hash');
+                    if (pw) backup._pw_hash = pw;
+                    backup._meta = { exportedAt: new Date().toISOString(), version: '2.0' };
+                    const blob = new Blob([JSON.stringify(backup, null, 2)], { type:'application/json' });
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(blob);
+                    a.download = `TradeFolio_Backup_${new Date().toISOString().slice(0,10)}.json`;
+                    a.click();
+                    showToast({ title: 'Backup exported', message: 'Save this file somewhere safe' });
+                  }}>
+                  ⬇ Export Backup
+                </button>
+                <label className="btn btn-secondary btn-sm" style={{ cursor:'pointer', margin:0 }}>
+                  ⬆ Restore from Backup
+                  <input type="file" accept=".json" style={{ display:'none' }}
+                    onChange={async e => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const reader = new FileReader();
+                      reader.onload = async ev => {
+                        try {
+                          const backup = JSON.parse(ev.target.result);
+                          if (!backup.tf_trades) { alert('Invalid backup file.'); return; }
+                          if (!window.confirm(`This will REPLACE all your current data with the backup from ${backup._meta?.exportedAt?.slice(0,10) || 'unknown date'}. Continue?`)) return;
+                          // Save to localStorage
+                          ['tf_trades','tf_journal','tf_settings','tf_accounts','tf_playbooks','tf_broker'].forEach(k => {
+                            if (backup[k] !== undefined) localStorage.setItem(k, JSON.stringify(backup[k]));
+                          });
+                          if (backup._pw_hash) localStorage.setItem('tf_pw_hash', backup._pw_hash);
+                          // Also save directly to Supabase so other devices get the correct data
+                          try {
+                            const { getSupabaseClient: getSb } = await import('../lib/supabase');
+                            const client = getSb();
+                            if (client) {
+                              const keys = ['tf_trades','tf_journal','tf_settings','tf_accounts','tf_playbooks'];
+                              await Promise.all(keys.map(k => backup[k]
+                                ? client.from('tf_data').upsert({ key: k, value: backup[k], updated_at: new Date().toISOString() }, { onConflict: 'key' })
+                                : Promise.resolve()
+                              ));
+                              if (backup._pw_hash) {
+                                await client.from('tf_data').upsert({ key: 'tf_pw_hash', value: backup._pw_hash, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+                              }
+                            }
+                          } catch (sbErr) { console.warn('Supabase backup sync failed:', sbErr); }
+                          showToast({ title: 'Backup restored', message: 'Reloading...' });
+                          setTimeout(() => window.location.reload(), 800);
+                        } catch { alert('Could not read backup file.'); }
+                      };
+                      reader.readAsText(file);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+              </div>
+            </div>
+
+            {/* New device setup guide */}
+            <div style={{ marginBottom:12, padding:'12px 14px', background:'rgba(59,130,246,.06)', border:'1px solid rgba(59,130,246,.15)', borderRadius:8 }}>
+              <div style={{ fontSize:13, fontWeight:600, marginBottom:6 }}>📱 Setting up on a new device?</div>
+              <div style={{ fontSize:12, color:'var(--text-muted)', lineHeight:1.8 }}>
+                On every new device (phone, tablet, new computer) do these steps in order:
+              </div>
+              <ol style={{ fontSize:12, color:'var(--text-secondary)', margin:'8px 0 0 0', paddingLeft:18, lineHeight:2 }}>
+                <li>Go to <strong>Settings → ☁ Cloud Sync</strong> and enter your Supabase URL and anon key → Connect</li>
+                <li>Your trades and data will load automatically from the cloud</li>
+                <li>Your password will also be restored — you'll be asked to log in next time</li>
+              </ol>
+              <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:8 }}>
+                💡 Save your Supabase URL and anon key somewhere safe (Notes app, Google Keep) so you always have them when setting up a new device.
+              </div>
+            </div>
+
+            <button type="button" className="btn btn-danger" onClick={()=>{ if(window.confirm('Delete ALL data from all accounts? This cannot be undone.')){localStorage.clear();window.location.reload();} }}>🗑 Clear All Data (All Accounts)</button>
+          </div>
+          <button type="submit" className="btn btn-primary" style={{ width:'100%', justifyContent:'center', padding:11 }}>{saved?'✓ Saved!':'Save Settings'}</button>
+        </form>
+      </div>
+    </div>
+  );
 }
