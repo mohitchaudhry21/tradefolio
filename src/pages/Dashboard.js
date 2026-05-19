@@ -149,7 +149,18 @@ export default function Dashboard() {
   }, [dayMap,daysInMonth,year,month]);
 
   const today  = new Date().toISOString().slice(0,10);
-  
+  const weekStartStr = (() => {
+    const d = new Date(); const day = d.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    const mon = new Date(d); mon.setDate(d.getDate() + diff);
+    return mon.toISOString().slice(0,10);
+  })();
+
+  const baseTrades = trades.filter(t => !t.isWithdrawal && !t.isDeposit && !t.isOpen && t.status !== 'Open' && (t.exitDate||t.entryDate));
+  const todayPnl   = baseTrades.filter(t => (t.exitDate||t.entryDate||'') === today).reduce((s,t) => s+netPnl(t), 0);
+  const thisWeekPnl = baseTrades.filter(t => (t.exitDate||t.entryDate||'') >= weekStartStr).reduce((s,t) => s+netPnl(t), 0);
+  const totalNetPnl = (stats.totalGrossPnl||0) - (stats.totalCommissions||0);
+  const accountReturn = accountSize > 0 ? ((totalNetPnl / accountSize) * 100) : 0;
 
   return (
     <div>
@@ -160,7 +171,7 @@ export default function Dashboard() {
 
       <div className="page-body">
         {/* Stat cards */}
-        <div className="stat-grid">
+        <div className="stat-grid" style={{gridTemplateColumns:'repeat(7,1fr)'}}>
           <div className="stat-card blue">
             <div className="stat-icon blue">💵</div>
             <div className="stat-label">Gross P&L</div>
@@ -186,6 +197,24 @@ export default function Dashboard() {
             <div className="stat-label">Win Rate</div>
             <div className="stat-val neu">{stats.winRate.toFixed(1)}%</div>
             <div className="stat-bar"><div className="stat-bar-fill" style={{width:`${stats.winRate}%`,background:stats.winRate>=50?'var(--blue)':'var(--red)'}}/></div>
+          </div>
+          <div className="stat-card green">
+            <div className="stat-icon green">📅</div>
+            <div className="stat-label">Today</div>
+            <div className={`stat-val ${todayPnl>=0?'pos':'neg'}`} style={{fontSize:20}}>{todayPnl===0?'—':fmtPnl(todayPnl)}</div>
+            <div className="stat-sub">Net P&L today</div>
+          </div>
+          <div className="stat-card green">
+            <div className="stat-icon green">📆</div>
+            <div className="stat-label">This Week</div>
+            <div className={`stat-val ${thisWeekPnl>=0?'pos':'neg'}`} style={{fontSize:20}}>{thisWeekPnl===0?'—':fmtPnl(thisWeekPnl)}</div>
+            <div className="stat-sub">Net P&L this week</div>
+          </div>
+          <div className="stat-card yellow">
+            <div className="stat-icon yellow">📈</div>
+            <div className="stat-label">Account Return</div>
+            <div className={`stat-val ${accountReturn>=0?'pos':'neg'}`} style={{fontSize:20}}>{accountReturn>=0?'+':''}{accountReturn.toFixed(2)}%</div>
+            <div className="stat-sub">${(stats.accountSize||10000).toLocaleString()} account</div>
           </div>
         </div>
 
