@@ -227,14 +227,14 @@ export default function Calendar() {
                         cursor:(cell||wd)?'pointer':'default',
                         background: cell
                           ? calColor(pos, Math.abs(cell.pnl)/monthMaxAbs)
-                          : 'rgba(255,255,255,.03)',
+                          : (isLight ? '#f3f6fa' : 'rgba(255,255,255,.03)'),
                         border: isSel
                           ? `2px solid ${pos?'var(--blue)':'var(--red)'}`
                           : isTod
-                            ? '2px solid rgba(59,130,246,.7)'
+                            ? (isLight ? '2px solid #2563eb' : '2px solid rgba(59,130,246,.7)')
                             : cell
                               ? calBorder(pos, Math.abs(cell.pnl)/monthMaxAbs)
-                              : '1px solid rgba(255,255,255,.07)',
+                              : (isLight ? '1px solid #dde3eb' : '1px solid rgba(255,255,255,.07)'),
                         transition:'all .12s',
                         display:'flex', flexDirection:'column', minHeight:0,
                         boxShadow: isTod?'0 0 0 1px rgba(59,130,246,.2)':'none',
@@ -242,13 +242,13 @@ export default function Calendar() {
                       {/* Day number */}
                       <div style={{
                         fontSize:13, fontWeight:700, lineHeight:1,
-                        color: isTod?'#60a5fa' : cell?'rgba(255,255,255,.9)':'rgba(255,255,255,.3)',
+                        color: isTod ? (isLight ? '#1d4ed8' : '#60a5fa') : cell ? (isLight ? '#1e293b' : 'rgba(255,255,255,.9)') : (isLight ? '#94a3b8' : 'rgba(255,255,255,.3)'),
                         marginBottom:3,
                       }}>{d}</div>
 
                       {/* P&L */}
                       {cell && (
-                        <div style={{fontSize:13,fontWeight:900,color:pos?'#60a5fa':'#f87171',lineHeight:1,letterSpacing:'-0.3px'}}>
+                        <div style={{fontSize:13,fontWeight:900,color:pos?(isLight?'#1d4ed8':'#60a5fa'):(isLight?'#dc2626':'#f87171'),lineHeight:1,letterSpacing:'-0.3px'}}>
                           {fmtShort(cell.pnl)}
                         </div>
                       )}
