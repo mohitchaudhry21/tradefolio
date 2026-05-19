@@ -38,6 +38,7 @@ function ChartTooltip({ active, payload, label }) {
 
 export default function Dashboard() {
   const { trades, stats } = useTrades();
+  const isLight = document.documentElement.getAttribute('data-theme') === 'light';
   const brokeragePerLot = stats.brokeragePerLot || 0;
   const accountSize     = stats.accountSize || 10000;
   const symbolComm      = stats.symbolCommissions || {};
@@ -243,7 +244,7 @@ export default function Dashboard() {
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
               <div>
                 <div style={{fontSize:18,fontWeight:800,letterSpacing:'-0.3px'}}>Monthly P&L</div>
-                <div style={{fontSize:16,fontWeight:900,color:monthPnl>=0?'#60a5fa':'#f87171',marginTop:3}}>{fmtPnl(monthPnl)}</div>
+                <div style={{fontSize:16,fontWeight:900,color:monthPnl>=0?(isLight?'#1d4ed8':'#60a5fa'):(isLight?'#dc2626':'#f87171'),marginTop:3}}>{fmtPnl(monthPnl)}</div>
               </div>
               <div style={{display:'flex',alignItems:'center',gap:4}}>
                 <button className="btn-icon" style={{padding:'4px 10px',fontSize:16}} onClick={()=>setCalMonth(new Date(year,month-1,1))}>‹</button>
@@ -255,9 +256,9 @@ export default function Dashboard() {
             {/* Column headers */}
             <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr) 72px',gap:4,marginBottom:4}}>
               {DAYS.map((d,i)=>(
-                <div key={i} style={{textAlign:'center',fontSize:12,fontWeight:700,color:'rgba(255,255,255,.5)',padding:'4px 0',letterSpacing:'.3px'}}>{d}</div>
+                <div key={i} style={{textAlign:'center',fontSize:12,fontWeight:700,color:isLight?'#64748b':'rgba(255,255,255,.5)',padding:'4px 0',letterSpacing:'.3px'}}>{d}</div>
               ))}
-              <div style={{textAlign:'center',fontSize:10,fontWeight:700,color:'#60a5fa',padding:'4px 0',letterSpacing:'.5px'}}>WK</div>
+              <div style={{textAlign:'center',fontSize:10,fontWeight:700,color:isLight?'#1d4ed8':'#60a5fa',padding:'4px 0',letterSpacing:'.5px'}}>WK</div>
             </div>
 
             {/* Rows */}
@@ -267,7 +268,7 @@ export default function Dashboard() {
                 <div key={wi} style={{display:'grid',gridTemplateColumns:'repeat(7,1fr) 72px',gap:4,marginBottom:4}}>
                   {Array.from({length:7},(_,di)=>{
                     const dn=dayNum(wi,di);
-                    if(dn<1||dn>daysInMonth) return <div key={di} style={{height:64,borderRadius:8,background:'rgba(255,255,255,.015)',border:'1px solid rgba(255,255,255,.04)'}}/>;
+                    if(dn<1||dn>daysInMonth) return <div key={di} style={{height:64,borderRadius:8,background:isLight?'#f8fafc':'rgba(255,255,255,.015)',border:isLight?'1px solid #dde3eb':'1px solid rgba(255,255,255,.04)'}}/>;
                     const dateStr=ds(dn);
                     const pnl=dayMap[dateStr];
                     const has=pnl!==undefined;
@@ -280,20 +281,20 @@ export default function Dashboard() {
                         alignItems:'flex-start', justifyContent:'space-between',
                         padding:'6px 7px', boxSizing:'border-box',
                         background: has
-                          ? pos ? 'rgba(59,130,246,.28)' : 'rgba(239,68,68,.28)'
-                          : 'rgba(255,255,255,.05)',
+                          ? pos ? (isLight?'rgba(37,99,235,.22)':'rgba(59,130,246,.28)') : (isLight?'rgba(220,38,38,.18)':'rgba(239,68,68,.28)')
+                          : (isLight?'#f3f6fa':'rgba(255,255,255,.05)'),
                         border: `1px solid ${
-                          isToday ? '#60a5fa'
+                          isToday ? (isLight?'#1d4ed8':'#60a5fa')
                           : has ? (pos ? 'rgba(96,165,250,.6)' : 'rgba(248,113,113,.6)')
-                          : 'rgba(255,255,255,.1)'
+                          : (isLight?'#dde3eb':'rgba(255,255,255,.1)')
                         }`,
                         boxShadow: isToday ? '0 0 0 2px rgba(96,165,250,.25)' : 'none',
                       }}>
                         <div style={{
                           fontSize:13, fontWeight:700, lineHeight:1,
                           color: isToday ? '#93c5fd'
-                            : has ? 'rgba(255,255,255,.95)'
-                            : 'rgba(255,255,255,.45)',
+                            : has ? (isLight?'#1e293b':'rgba(255,255,255,.95)')
+                            : (isLight?'#64748b':'rgba(255,255,255,.45)'),
                         }}>{dn}</div>
                         {has && (
                           <div style={{
@@ -311,22 +312,22 @@ export default function Dashboard() {
                     display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:2,
                     background: wp.days>0
                       ? (wp.total>=0 ? 'rgba(59,130,246,.2)' : 'rgba(239,68,68,.2)')
-                      : 'rgba(255,255,255,.03)',
+                      : (isLight?'#f3f6fa':'rgba(255,255,255,.03)'),
                     border: `1px solid ${wp.days>0
                       ? (wp.total>=0 ? 'rgba(96,165,250,.4)' : 'rgba(248,113,113,.4)')
-                      : 'rgba(255,255,255,.08)'}`,
+                      : (isLight?'#dde3eb':'rgba(255,255,255,.08)')}`,
                     boxSizing:'border-box',
                   }}>
                     {wp.days>0 ? (
                       <>
-                        <div style={{fontSize:8,fontWeight:700,color:'rgba(255,255,255,.45)',letterSpacing:'1px'}}>WK</div>
+                        <div style={{fontSize:8,fontWeight:700,color:isLight?'#94a3b8':'rgba(255,255,255,.45)',letterSpacing:'1px'}}>WK</div>
                         <div style={{fontSize:13,fontWeight:900,color:wp.total>=0?'#93c5fd':'#fca5a5',letterSpacing:'-0.3px',lineHeight:1}}>
                           {fmtShort(wp.total)}
                         </div>
-                        <div style={{fontSize:9,color:'rgba(255,255,255,.4)'}}>{wp.days}d</div>
+                        <div style={{fontSize:9,color:isLight?'#94a3b8':'rgba(255,255,255,.4)'}}>{wp.days}d</div>
                       </>
                     ) : (
-                      <div style={{fontSize:11,color:'rgba(255,255,255,.18)'}}>—</div>
+                      <div style={{fontSize:11,color:isLight?'#cbd5e1':'rgba(255,255,255,.18)'}}>—</div>
                     )}
                   </div>
                 </div>
@@ -336,11 +337,11 @@ export default function Dashboard() {
             <div style={{display:'flex',gap:16,marginTop:8,fontSize:11}}>
               <span style={{display:'flex',alignItems:'center',gap:5}}>
                 <span style={{width:9,height:9,borderRadius:3,background:'rgba(96,165,250,.6)',display:'inline-block'}}/>
-                <span style={{color:'rgba(255,255,255,.5)'}}>Profit</span>
+                <span style={{color:isLight?'#475569':'rgba(255,255,255,.5)'}}>Profit</span>
               </span>
               <span style={{display:'flex',alignItems:'center',gap:5}}>
                 <span style={{width:9,height:9,borderRadius:3,background:'rgba(248,113,113,.6)',display:'inline-block'}}/>
-                <span style={{color:'rgba(255,255,255,.5)'}}>Loss</span>
+                <span style={{color:isLight?'#475569':'rgba(255,255,255,.5)'}}>Loss</span>
               </span>
             </div>
           </div>
