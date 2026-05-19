@@ -56,7 +56,15 @@ export default function Sidebar() {
   })();
 
   const brokeragePerLot = stats.brokeragePerLot || 0;
-  const tradeComm = t => brokeragePerLot > 0 ? brokeragePerLot * (t.size||0) : (t.fees||0);
+  const symbolComm      = stats.symbolCommissions || {};
+  const tradeComm = t => {
+    if ((t.fees||0) > 0) return t.fees;
+    const sym = (t.symbol||'').toUpperCase();
+    const sr = symbolComm[sym];
+    if (sr !== undefined && (t.size||0) > 0) return parseFloat(sr) * (t.size||0);
+    if (brokeragePerLot > 0 && (t.size||0) > 0) return brokeragePerLot * (t.size||0);
+    return 0;
+  };
   const netT = t => (t.pnl||0) - tradeComm(t);
 
   const baseTrades = trades.filter(t => !t.isWithdrawal && !t.isDeposit && !t.isOpen && t.status !== 'Open');
