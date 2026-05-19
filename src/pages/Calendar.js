@@ -96,6 +96,29 @@ export default function Calendar() {
     return max || 1;
   }, [tradeMap, daysInMonth, year, month]);
 
+  // Detect light mode for vivid calendar colors
+  const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+  const calColor = (isProfit, intensity) => {
+    if (isLight) {
+      return isProfit
+        ? `rgba(37,99,235,${(0.15 + 0.55 * intensity).toFixed(2)})`
+        : `rgba(220,38,38,${(0.12 + 0.48 * intensity).toFixed(2)})`;
+    }
+    return isProfit
+      ? `rgba(59,130,246,${(0.08 + 0.32 * intensity).toFixed(2)})`
+      : `rgba(239,68,68,${(0.08 + 0.32 * intensity).toFixed(2)})`;
+  };
+  const calBorder = (isProfit, intensity) => {
+    if (isLight) {
+      return isProfit
+        ? `1px solid rgba(37,99,235,${(0.25 + 0.4 * intensity).toFixed(2)})`
+        : `1px solid rgba(220,38,38,${(0.2 + 0.4 * intensity).toFixed(2)})`;
+    }
+    return isProfit
+      ? `1px solid rgba(59,130,246,.35)`
+      : `1px solid rgba(239,68,68,.35)`;
+  };
+
   const fmtDetailDate = d => {
     if (!d) return '';
     return new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
@@ -203,14 +226,14 @@ export default function Calendar() {
                         borderRadius:7, padding:'6px 8px', boxSizing:'border-box',
                         cursor:(cell||wd)?'pointer':'default',
                         background: cell
-                          ? (pos ? `rgba(59,130,246,${(0.08 + 0.32*(Math.abs(cell.pnl)/monthMaxAbs)).toFixed(2)})` : `rgba(239,68,68,${(0.08 + 0.32*(Math.abs(cell.pnl)/monthMaxAbs)).toFixed(2)})`)
+                          ? calColor(pos, Math.abs(cell.pnl)/monthMaxAbs)
                           : 'rgba(255,255,255,.03)',
                         border: isSel
                           ? `2px solid ${pos?'var(--blue)':'var(--red)'}`
                           : isTod
                             ? '2px solid rgba(59,130,246,.7)'
                             : cell
-                              ? `1px solid ${pos?'rgba(59,130,246,.35)':'rgba(239,68,68,.35)'}`
+                              ? calBorder(pos, Math.abs(cell.pnl)/monthMaxAbs)
                               : '1px solid rgba(255,255,255,.07)',
                         transition:'all .12s',
                         display:'flex', flexDirection:'column', minHeight:0,
@@ -255,7 +278,7 @@ export default function Calendar() {
                     border: isSelWeek
                       ? `2px solid ${wp.pnl>=0?'var(--blue)':'var(--red)'}`
                       : wp.tradedDays>0
-                        ? `1px solid ${wp.pnl>=0?'rgba(59,130,246,.35)':'rgba(239,68,68,.35)'}`
+                        ? calBorder(wp.pnl>=0, 0.5)
                         : '1px solid rgba(255,255,255,.06)',
                     display:'flex', flexDirection:'column', justifyContent:'center', minHeight:0,
                     transition:'all .12s',
