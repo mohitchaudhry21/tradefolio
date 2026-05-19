@@ -81,7 +81,16 @@ export default function BalancePage() {
     .sort((a,b) => { const da=a.entryDate||'',db=b.entryDate||''; return da!==db?da.localeCompare(db):(a.entryTime||'').localeCompare(b.entryTime||''); }),
   [accountTrades, fromDate, toDate]);
 
-  const tradeComm = t => (stats.brokeragePerLot||0) > 0 ? (stats.brokeragePerLot)*(t.size||0) : (t.fees||0);
+  const brokeragePerLot = stats.brokeragePerLot || 0;
+  const symbolComm      = stats.symbolCommissions || {};
+  const tradeComm = t => {
+    if ((t.fees||0) > 0) return t.fees;
+    const sym = (t.symbol||'').toUpperCase();
+    const sr = symbolComm[sym];
+    if (sr !== undefined && (t.size||0) > 0) return parseFloat(sr) * (t.size||0);
+    if (brokeragePerLot > 0 && (t.size||0) > 0) return brokeragePerLot * (t.size||0);
+    return 0;
+  };
 
   const rows = useMemo(() => {
     let balance = startingBalance;
