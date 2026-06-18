@@ -743,8 +743,25 @@ export function ImportPage() {
   };
 
   const isDuplicate = (t) => {
-    const existingPosIds = new Set(trades.map(x=>x.positionId).filter(Boolean));
-    if (t.positionId && existingPosIds.has(t.positionId)) return true;
+    const ep = t.entryPrice ? Math.round(parseFloat(t.entryPrice) * 100) : null;
+    const xp = t.exitPrice  ? Math.round(parseFloat(t.exitPrice)  * 100) : null;
+    const sz = parseFloat(t.size||0).toFixed(2);
+
+    // positionId match alone is NOT sufficient — netting MT5 accounts can reuse the
+    // same Position ID across multiple partial closes of a position, so two genuinely
+    // different trades can share a positionId. Only treat as duplicate if prices+size match too.
+    if (t.positionId) {
+      const samePosId = trades.filter(x => x.positionId === t.positionId);
+      if (samePosId.length > 0) {
+        const matchesAny = samePosId.some(x => {
+          const xEp = x.entryPrice ? Math.round(parseFloat(x.entryPrice) * 100) : null;
+          const xXp = x.exitPrice  ? Math.round(parseFloat(x.exitPrice)  * 100) : null;
+          const xSz = parseFloat(x.size||0).toFixed(2);
+          return xEp === ep && xXp === xp && xSz === sz;
+        });
+        if (matchesAny) return true;
+      }
+    }
 
     // Get dates to check including ±1 day for timezone shifts
     const baseDate = t.exitDate || t.entryDate || '';
@@ -763,17 +780,21 @@ export function ImportPage() {
         datesToCheck.includes(x.exitDate||x.entryDate||''));
     }
     if (!t.entryPrice) return false;
-    const ep = Math.round(parseFloat(t.entryPrice));
+    // Fallback dedup (no positionId available): require entry price AND exit price to match
+    // within 1 cent, AND size, AND a date within ±1 day. No date-independent matching —
+    // that was causing trades 10+ days apart to be wrongly flagged as duplicates just because
+    // they rounded to the same whole-dollar price with the same lot size.
+    const ep = Math.round(parseFloat(t.entryPrice) * 100);
+    const xp = t.exitPrice ? Math.round(parseFloat(t.exitPrice) * 100) : null;
     const sz = parseFloat(t.size||0).toFixed(2);
-    const ndKey = `nd-${ep}-${sz}`;
     return trades.some(x => {
       if (!x.entryPrice) return false;
-      const xep = Math.round(parseFloat(x.entryPrice));
+      const xep = Math.round(parseFloat(x.entryPrice) * 100);
+      const xxp = x.exitPrice ? Math.round(parseFloat(x.exitPrice) * 100) : null;
       const xsz = parseFloat(x.size||0).toFixed(2);
-      if (xep !== ep || xsz !== sz) return false;
-      // Match by date ±1 day OR by price+size alone (fallback for timezone mismatches)
+      if (xep !== ep || xxp !== xp || xsz !== sz) return false;
       const xd = x.exitDate || x.entryDate || '';
-      return datesToCheck.includes(xd) || `nd-${xep}-${xsz}` === ndKey;
+      return datesToCheck.includes(xd);
     });
   };
   const exportAll = () => {
@@ -1762,13 +1783,15 @@ export function SettingsPage() {
                 <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:3 }}>DUPLICATES</div>
                 <div style={{ fontWeight:800, fontSize:20 }}>
                   {(() => {
-                    const seen = new Set();
+                    const seen = new Map(); // positionId → Set of price/size keys
                     let count = 0;
                     trades.forEach(t => {
-                      if (t.positionId) {
-                        if (seen.has(t.positionId)) count++;
-                        else seen.add(t.positionId);
-                      }
+                      if (!t.positionId) return;
+                      const key = `${t.entryPrice?Math.round(parseFloat(t.entryPrice)*100):null}-${t.exitPrice?Math.round(parseFloat(t.exitPrice)*100):null}-${parseFloat(t.size||0).toFixed(2)}`;
+                      if (!seen.has(t.positionId)) seen.set(t.positionId, new Set());
+                      const set = seen.get(t.positionId);
+                      if (set.has(key)) count++;
+                      else set.add(key);
                     });
                     return <span style={{ color: count > 0 ? 'var(--red)' : '#4ade80' }}>{count}</span>;
                   })()}
@@ -1782,19 +1805,22 @@ export function SettingsPage() {
                 <div>
                   <div style={{ fontSize:13, fontWeight:600, marginBottom:2 }}>🧹 Remove Duplicate Trades</div>
                   <div style={{ fontSize:12, color:'var(--text-muted)' }}>
-                    Finds trades with the same Position ID and removes the extras. Journal notes and account tags on the first occurrence are kept.
+                    Finds trades with the same Position ID, entry price, exit price, and size — and removes the extras. Journal notes and account tags on the first occurrence are kept. (Trades sharing a Position ID but with different prices/size are kept, since netting accounts can reuse Position IDs across partial closes.)
                   </div>
                 </div>
                 <button type="button" className="btn btn-secondary btn-sm" style={{ flexShrink:0 }}
                   onClick={() => {
-                    const seen = new Map(); // positionId → first trade id
+                    const seen = new Map(); // positionId → Map(priceSizeKey → first trade id)
                     const toDelete = [];
                     trades.forEach(t => {
                       if (!t.positionId) return;
-                      if (seen.has(t.positionId)) {
+                      const key = `${t.entryPrice?Math.round(parseFloat(t.entryPrice)*100):null}-${t.exitPrice?Math.round(parseFloat(t.exitPrice)*100):null}-${parseFloat(t.size||0).toFixed(2)}`;
+                      if (!seen.has(t.positionId)) seen.set(t.positionId, new Map());
+                      const posMap = seen.get(t.positionId);
+                      if (posMap.has(key)) {
                         toDelete.push(t.id);
                       } else {
-                        seen.set(t.positionId, t.id);
+                        posMap.set(key, t.id);
                       }
                     });
                     if (toDelete.length === 0) {
