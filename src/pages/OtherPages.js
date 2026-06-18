@@ -784,15 +784,15 @@ export function ImportPage() {
     // within 1 cent, AND size, AND a date within ±1 day. No date-independent matching —
     // that was causing trades 10+ days apart to be wrongly flagged as duplicates just because
     // they rounded to the same whole-dollar price with the same lot size.
-    const ep = Math.round(parseFloat(t.entryPrice) * 100);
-    const xp = t.exitPrice ? Math.round(parseFloat(t.exitPrice) * 100) : null;
+    const fbEp = Math.round(parseFloat(t.entryPrice) * 100);
+    const fbXp = t.exitPrice ? Math.round(parseFloat(t.exitPrice) * 100) : null;
     const sz = parseFloat(t.size||0).toFixed(2);
     return trades.some(x => {
       if (!x.entryPrice) return false;
       const xep = Math.round(parseFloat(x.entryPrice) * 100);
       const xxp = x.exitPrice ? Math.round(parseFloat(x.exitPrice) * 100) : null;
       const xsz = parseFloat(x.size||0).toFixed(2);
-      if (xep !== ep || xxp !== xp || xsz !== sz) return false;
+      if (xep !== fbEp || xxp !== fbXp || xsz !== sz) return false;
       const xd = x.exitDate || x.entryDate || '';
       return datesToCheck.includes(xd);
     });
