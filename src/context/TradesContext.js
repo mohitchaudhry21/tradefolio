@@ -231,19 +231,20 @@ export function TradesProvider({ children }) {
       'notes','setup','emotion','tags','mistakes','rMultiple','status','timeframe',
     ];
 
-    // Dedup key: entryPrice (rounded) + size + date
-    // For list-view screenshot trades, exitDate IS the exit date shown in MT5
-    // For Excel trades, exitDate is the close date from the Excel file
-    // Both sides use exitDate preferentially so they match
+    // Dedup key: entryPrice (2dp) + exitPrice (2dp) + size + date
+    // Using both entry AND exit price at 2dp precision avoids the whole-dollar
+    // rounding false-matches that were silently blocking new trades from being added.
     const tradeKey = (t, dateOverride) => {
       if (t.isWithdrawal || t.isDeposit) {
         const d = dateOverride || t.exitDate || t.entryDate || '';
         return `wd-${Math.round(Math.abs(t.pnl||0))}-${d}`;
       }
       if (!t.entryPrice) return null;
-      // Always prefer exitDate — list view only has exit date, Excel has both
       const d = dateOverride || t.exitDate || t.entryDate || '';
-      return `${Math.round(parseFloat(t.entryPrice))}-${parseFloat(t.size||0).toFixed(2)}-${d}`;
+      const ep = parseFloat(t.entryPrice).toFixed(2);
+      const xp = parseFloat(t.exitPrice||0).toFixed(2);
+      const sz = parseFloat(t.size||0).toFixed(2);
+      return `${ep}-${xp}-${sz}-${d}`;
     };
 
     // Get adjacent dates (±1 day) to handle timezone-shifted dates
@@ -257,12 +258,10 @@ export function TradesProvider({ children }) {
 
     const tradeKeys = (t) => {
       const baseDate = t.exitDate || t.entryDate || '';
-      const withDates = adjacentDates(baseDate).map(d => tradeKey(t, d)).filter(Boolean);
-      // Also add a date-free key as ultimate fallback (entry price + size only)
-      if (t.entryPrice && !t.isWithdrawal && !t.isDeposit) {
-        withDates.push(`nd-${Math.round(parseFloat(t.entryPrice))}-${parseFloat(t.size||0).toFixed(2)}`);
-      }
-      return withDates;
+      // Date-based keys with ±1 day tolerance — NO date-free fallback key.
+      // The nd- (no-date) fallback was causing trades with similar entry prices
+      // and lot sizes to be wrongly treated as duplicates across any date.
+      return adjacentDates(baseDate).map(d => tradeKey(t, d)).filter(Boolean);
     };
 
     setTrades(prev => {
@@ -313,27 +312,18 @@ export function TradesProvider({ children }) {
 
       // Final dedup — catches anything that slipped through the brandNew filter
       // Priority: existing trades (in `updated`) beat newly added ones (in `brandNew`)
-      // Use nd-key (entry price + size) as the tiebreaker
+      // Final dedup pass: prevent any trade from appearing twice.
+      // Only use positionId for deduplication here — the tradeKey matching above
+      // already handles fuzzy dedup. The nd- (no-date) key caused genuine new
+      // trades with similar entry prices/sizes to be silently dropped.
       const seenPositions = new Set();
-      const seenNdKeys    = new Set();
       const deduped = [];
-      // Process `updated` first (existing trades take priority)
       for (const t of updated) {
-        const ndKey = t.entryPrice && !t.isWithdrawal && !t.isDeposit
-          ? `nd-${Math.round(parseFloat(t.entryPrice))}-${parseFloat(t.size||0).toFixed(2)}`
-          : null;
         if (t.positionId) seenPositions.add(t.positionId);
-        if (ndKey)        seenNdKeys.add(ndKey);
         deduped.push(t);
       }
-      // Now add brandNew only if not already covered
       for (const t of brandNew) {
         if (t.positionId && seenPositions.has(t.positionId)) continue;
-        const ndKey = t.entryPrice && !t.isWithdrawal && !t.isDeposit
-          ? `nd-${Math.round(parseFloat(t.entryPrice))}-${parseFloat(t.size||0).toFixed(2)}`
-          : null;
-        if (ndKey && seenNdKeys.has(ndKey)) continue; // existing trade with same price+size exists
-        if (ndKey) seenNdKeys.add(ndKey);
         if (t.positionId) seenPositions.add(t.positionId);
         deduped.push(t);
       }
