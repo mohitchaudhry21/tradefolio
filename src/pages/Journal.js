@@ -47,6 +47,7 @@ export default function Journal() {
     ...(settings?.customMistakes || []),
   ];
   const [tab,      setTab]      = useState('all');
+  const [journalSearch, setJournalSearch] = useState('');
   const [selected, setSelected] = useState(trades[0]?.id || null);
   const [sl, setSl] = useState('');
   const [tp, setTp] = useState('');
@@ -74,6 +75,17 @@ export default function Journal() {
       if (tab === 'journaled') return journaledIds.includes(t.id);
       if (tab === 'pending')   return !journaledIds.includes(t.id);
       return true;
+    })
+    .filter(t => {
+      if (!journalSearch.trim()) return true;
+      const q = journalSearch.toLowerCase();
+      const jd = getJournal(t.id);
+      const setupStr = Array.isArray(t.setup) ? t.setup.join(' ') : (t.setup || '');
+      const haystack = [
+        t.symbol, setupStr, t.timeframe,
+        jd.preTrade, jd.postReview, jd.emotions, jd.lessons,
+      ].filter(Boolean).join(' ').toLowerCase();
+      return haystack.includes(q);
     })
     .sort((a, b) => {
       const da = `${a.exitDate||a.entryDate||''}${a.exitTime||a.entryTime||''}`;
@@ -347,10 +359,21 @@ export default function Journal() {
             ))}
           </div>
 
+          {/* Search */}
+          <div style={{ padding:'8px 10px', borderBottom:'1px solid var(--border)', flexShrink:0 }}>
+            <input
+              className="filter-inp"
+              placeholder="🔍 Search symbol, setup, notes..."
+              value={journalSearch}
+              onChange={e => setJournalSearch(e.target.value)}
+              style={{ width:'100%' }}
+            />
+          </div>
+
           {/* Trade cards — scrollable */}
           <div style={{ flex: 1, overflowY: 'auto', padding: '10px 10px' }}>
             {displayTrades.length === 0 && (
-              <div className="empty-state"><div className="empty-text">No trades here</div></div>
+              <div className="empty-state"><div className="empty-text">{journalSearch.trim() ? 'No trades match your search' : 'No trades here'}</div></div>
             )}
             {displayTrades.map(t => {
               const jd = getJournal(t.id);
