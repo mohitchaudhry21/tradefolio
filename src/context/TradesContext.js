@@ -168,7 +168,7 @@ export function TradesProvider({ children }) {
   }, []);
 
   const addTrade    = useCallback(t  => setTrades(p => [normalizeTrade({ ...t, id: uuidv4() }), ...p]), []);
-  const updateTrade = useCallback((id, u) => setTrades(p => p.map(t => t.id === id ? normalizeTrade({ ...t, ...u }) : t)), []);
+  const updateTrade = useCallback((id, u) => setTrades(p => p.map(t => t.id === id ? normalizeTrade({ ...t, ...u, userEdited: true }) : t)), []);
   const deleteTrade = useCallback(id => setTrades(p => p.filter(t => t.id !== id)), []);
 
   const undoLastImport = useCallback(() => {
@@ -228,7 +228,7 @@ export function TradesProvider({ children }) {
     // - No match at all → add as brand new trade
     // - NEVER delete any trade
     const KEEP_FIELDS = [
-      'notes','setup','emotion','tags','mistakes','rMultiple','status','timeframe',
+      'notes','setup','emotion','tags','mistakes','rMultiple','status','timeframe','userEdited',
     ];
 
     // Dedup key: entryPrice (2dp) + exitPrice (2dp) + size + date
@@ -290,8 +290,13 @@ export function TradesProvider({ children }) {
         const preserved = {};
         KEEP_FIELDS.forEach(k => { if (existing[k] !== undefined) preserved[k] = existing[k]; });
 
-        const wasImported = existing.accountId || (existing.source && existing.source !== 'Manual');
-        if (wasImported) {
+        // Only protect pnl/fees/size from being overwritten if the user manually
+        // edited this trade by hand. Previously this preserved old values for ANY
+        // already-imported trade, which meant a corrupted/incorrect value from a
+        // broken earlier import would get locked in forever and never self-correct
+        // on a fresh, accurate re-import. Broker data should always be the source
+        // of truth unless the person explicitly changed it themselves.
+        if (existing.userEdited) {
           if (existing.pnl  != null) preserved.pnl  = existing.pnl;
           if (existing.fees != null) preserved.fees = existing.fees;
           if (existing.size != null) preserved.size = existing.size;
